@@ -22,7 +22,7 @@ x = 1000
 clock = pygame.time.Clock()
 delta_time = 0.1
 font = pygame.font.Font(None, 18) #Сюда загрузить шрифт
-r_hex = 42
+r_hex = 40
 HEX_GRID_WIDTH, HEX_GRID_HEIGHT = screen.get_size()
 HEX_GRID_RADIUS = r_hex
 
