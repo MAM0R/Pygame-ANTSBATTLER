@@ -68,6 +68,20 @@ instance/
 # Scrapy stuff:
 .scrapy
 
+# Папки редакторов (PyCharm и VS Code)
+.idea/
+.vscode/
+
+# Виртуальные окружения Python
+.venv/
+venv/
+env/
+
+# Кэш и временные файлы Python
+__pycache__/
+*.pyc
+*.pyo
+
 # Sphinx documentation
 docs/_build/
 
