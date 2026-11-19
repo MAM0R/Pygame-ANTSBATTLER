@@ -79,7 +79,24 @@ class TestButton:
             return False
         
 
-#class Warrior:
+#class Муравьёв:
+class Muravey:
+    def __init__(self):
+        self.zdorovie = 100
+        self.prohodimost = 3
+        self.uron = 10
+        self.bronya = 0
+        self.imya = "Муравей"
+#Логика получения урона
+def nanesti_uron(atakuyushiy, zashchitnik):
+    fakt_uron = atakuyushiy.uron * (1 - zashchitnik.bronya / 100)
+    zashchitnik.zdorovie = max(0,
+    zashchitnik.zdorovie - fakt_uron)
+#JSON парсер:
+import json
+
+with open("Data/muravi.json", "r", encoding = "ulf-8") as fail:
+    kartoshka = json.load(fail)
 
 #HEX TOOL:
 
