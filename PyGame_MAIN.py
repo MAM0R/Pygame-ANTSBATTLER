@@ -2,6 +2,8 @@ import pygame
 import os #нужен чтобы папка не потерялась внутри системы
 import random
 import math
+import json
+
 
 pygame.init()
 
@@ -9,12 +11,20 @@ screen = pygame.display.set_mode((1600, 900)) #разрешение окна (16
 
 main_dir = os.path.dirname(os.path.abspath(__file__))
 textures_dir = os.path.join(main_dir, "Textures") 
+data_dir = os.path.join(main_dir, "Data")
 
 #Оформление окна:
 pygame.display.set_caption("Pygame ANTSBATTLER")
 path_game_icon = os.path.join(textures_dir, "GAMEICONANT.png")
 game_icon = pygame.image.load(path_game_icon)
 pygame.display.set_icon(game_icon)
+
+#JSON парсер:
+muravi_json = os.path.join(data_dir, "muravi.json")
+with open(muravi_json, "r", encoding="utf-8") as f:
+    json_f = json.load(f)
+print(json_f)
+
 
 """ВАЖНЫЕ ПЕРЕМЕННЫЕ:"""
 running = True #нужно чтобы игра сразу не закрывалась
@@ -92,11 +102,9 @@ def nanesti_uron(atakuyushiy, zashchitnik):
     fakt_uron = atakuyushiy.uron * (1 - zashchitnik.bronya / 100)
     zashchitnik.zdorovie = max(0,
     zashchitnik.zdorovie - fakt_uron)
-#JSON парсер:
-import json
 
-with open("Data/muravi.json", "r", encoding = "ulf-8") as fail:
-    kartoshka = json.load(fail)
+
+
 
 #HEX TOOL:
 
