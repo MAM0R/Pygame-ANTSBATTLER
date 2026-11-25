@@ -1,12 +1,12 @@
 {
   "rabochiy": {
-    "imya": "Муравей-рабочий",
+    "nazvanie": "Муравей-рабочий",
     "zdorovie": 70,
     "prohodimost": 4,
     "uron": 5
   },
   "soldat": {
-    "imya": "Муравей-солдат",
+    "nazvanie": "Муравей-солдат",
     "zdorovie": 150,
     "prohodimost": 3,
     "uron": 50,
