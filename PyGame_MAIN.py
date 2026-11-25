@@ -92,7 +92,7 @@ class HUD:
         self.resources_rect = self.resources_surface.get_rect(topleft=(0, 0))
         self.build_rect = self.build_surface.get_rect(topleft=(width_hud * 0.84, height_hud * 0.74))
         self.select_rect = self.select_surface.get_rect(topleft=(width_hud * 0.01, height_hud * 0.79))
-        
+
     def create_build_hud(self):
         x_start = self.width_hud * 0.84 + 15
         render_pos = [x_start, self.height_hud * 0.74 + 15]
@@ -310,9 +310,21 @@ provintsii_kletok = {
     koord: "polya" for koord in hex_grid
 }
 
-provintsii_kletok[(4, 4)] = "les"
-provintsii_kletok[(5, 4)] = "voda"
-provintsii_kletok[(6, 4)] = "pustynya"
+put_karty = os.path.join(data_dir, "karta_provintsiy.json")
+
+provintsii_kletok = {
+    koord: "polya" for koord in hex_grid
+}
+
+if os.path.exists(put_karty):
+    with open(put_karty, "r", encoding="utf-8") as fail:
+        sohranennye = json.load(fail)
+
+    for koord, tip in sohranennye.items():
+        col, row = map(int, koord.split(","))
+
+        if (col, row) in hex_grid and tip in tipy_provintsiy:
+            provintsii_kletok[(col, row)] = tip
 
 setka_sloy = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
 
@@ -328,6 +340,27 @@ building_textures = {
 }
 
 hud = HUD(1600, 900, building_textures)
+
+redaktor = False
+tip_kisti = "les"
+
+knopki_tipov = {
+    pygame.K_1: "polya",
+    pygame.K_2: "les",
+    pygame.K_3: "gory",
+    pygame.K_4: "pustynya",
+    pygame.K_5: "plyazh",
+    pygame.K_6: "voda"
+}
+
+cveta_tipov = {
+    "polya": (120, 200, 100, 90),
+    "les": (20, 110, 40, 110),
+    "gory": (120, 120, 120, 110),
+    "pustynya": (230, 180, 70, 110),
+    "plyazh": (240, 220, 140, 110),
+    "voda": (30, 100, 210, 110)
+}
 
 while running:
     
@@ -346,7 +379,25 @@ while running:
     else:
         hovered_tile = hex_under_mouse(hex_grid)
 
+    if redaktor and hovered_tile is not None:
+        if pygame.mouse.get_pressed()[0]:
+            koord = (hovered_tile.col, hovered_tile.row)
+            provintsii_kletok[koord] = tip_kisti
+
     setka_sloy.fill((0, 0, 0, 0))
+
+    if redaktor:
+        for koord, tip in provintsii_kletok.items():
+            if tip == "polya":
+                continue
+
+            kletka = hex_grid[koord]
+
+            pygame.draw.polygon(
+                setka_sloy,
+                cveta_tipov[tip],
+                kletka.table_points
+            )
 
     for tile in hex_grid.values():
         tile.draw(setka_sloy, color=(200, 200, 200, 90), thick=3)
@@ -367,8 +418,34 @@ while running:
         if event.type == pygame.QUIT: #закрыть полностью игру при нажатие на крестик сверху
             running = False
 
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_F2:
+                redaktor = not redaktor
+                print("Редактор:", redaktor)
+
+            if redaktor and event.key in knopki_tipov:
+                tip_kisti = knopki_tipov[event.key]
+                print("Кисть:", tip_kisti)
+
+            if redaktor and event.key == pygame.K_F5:
+                dannye_karty = {
+                    f"{col},{row}": tip
+                    for (col, row), tip in provintsii_kletok.items()
+                    if tip != "polya"
+                }
+
+                with open(put_karty, "w", encoding="utf-8") as fail:
+                    json.dump(
+                        dannye_karty,
+                        fail,
+                        ensure_ascii=False,
+                        indent=2
+                    )
+
+                print("Карта сохранена!")
+
         if event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 1 and not hud.is_mouse_over(mouse_pos):
+            if event.button == 1 and not hud.is_mouse_over(mouse_pos) and not redaktor:
                 kletka = hex_under_mouse(hex_grid)
 
                 if kletka is not None:
