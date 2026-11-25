@@ -1,0 +1,28 @@
+
+{
+    "polya": {
+        "nazvanie": "Поля",
+        "stoimost": 1
+    },
+    "plyazh": {
+        "nazvanie": "Пляж",
+        "stoimost": 2
+    },
+    "pustynya": {
+        "nazvanie": "Пустыня",
+        "stoimost": 2
+    },
+    "les": {
+        "nazvanie": "Лес",
+        "stoimost": 2
+    },
+    "gory": {
+        "nazvanie": "Горы",
+        "stoimost": 3
+    },
+    "voda": {
+        "nazvanie": "Вода",
+        "stoimost": 0,
+        "smertelna": true
+    }
+}

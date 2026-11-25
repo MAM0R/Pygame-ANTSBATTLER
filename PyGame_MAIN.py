@@ -25,6 +25,10 @@ with open(muravi_json, "r", encoding="utf-8") as f:
     json_f = json.load(f)
 print(json_f)
 
+provintsii_json = os.path.join(data_dir, "tipy_provintsiy.json")
+
+with open(provintsii_json, "r", encoding="utf-8") as fail:
+    tipy_provintsiy = json.load(fail)
 
 """ВАЖНЫЕ ПЕРЕМЕННЫЕ:"""
 running = True #нужно чтобы игра сразу не закрывалась
@@ -32,7 +36,7 @@ x = 1000
 clock = pygame.time.Clock()
 delta_time = 0.1
 font = pygame.font.Font(None, 18) #Сюда загрузить шрифт
-r_hex = 48
+r_hex = 26
 HEX_GRID_WIDTH, HEX_GRID_HEIGHT = screen.get_size()
 HEX_GRID_RADIUS = r_hex
 
@@ -176,12 +180,11 @@ class TestButton:
         
 
 #class Муравьёв:
-
 class Muravey:
     def __init__(pelmeshki, tip, kletka):
         dannye = json_f[tip]
 
-        pelmeshki.imya = dannye["imya"]
+        pelmeshki.nazvanie = dannye["nazvanie"]
         pelmeshki.zdorovie = dannye["zdorovie"]
         pelmeshki.prohodimost = dannye["prohodimost"]
         pelmeshki.uron = dannye["uron"]
@@ -189,8 +192,35 @@ class Muravey:
         pelmeshki.kletka = kletka
 
     def narisovat(pelmeshki, poverhnost, kartinka):
+        if pelmeshki.zdorovie <= 0:
+            return
+
         mesto = kartinka.get_rect(center=pelmeshki.kletka.center)
         poverhnost.blit(kartinka, mesto)
+
+    def peremestitsya(pelmeshki, novaya_kletka):
+        if pelmeshki.zdorovie <= 0:
+            return False
+
+        if novaya_kletka is None:
+            return False
+
+        if not pelmeshki.kletka.is_has_neighbor(novaya_kletka):
+            return False
+
+        koord = (novaya_kletka.col, novaya_kletka.row)
+        tip = provintsii_kletok[koord]
+        svoystva = tipy_provintsiy[tip]
+
+        if not svoystva.get("prohodima", True):
+            return False
+
+        pelmeshki.kletka = novaya_kletka
+
+        if svoystva.get("smertelna", False):
+            pelmeshki.zdorovie = 0
+
+        return True
 
 #Логика получения урона
 def nanesti_uron(atakuyushiy, zashchitnik):
@@ -276,10 +306,22 @@ def hex_under_mouse(grid):
 """Инициализация:"""
 hex_grid = create_hex_grid(HEX_GRID_WIDTH, HEX_GRID_HEIGHT, HEX_GRID_RADIUS)
 
+provintsii_kletok = {
+    koord: "polya" for koord in hex_grid
+}
 
+provintsii_kletok[(4, 4)] = "les"
+provintsii_kletok[(5, 4)] = "voda"
+provintsii_kletok[(6, 4)] = "pustynya"
 
-rabochiy = Muravey("rabochiy", hex_grid[(4, 4)])
+setka_sloy = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
 
+muravi = [
+    Muravey("rabochiy", hex_grid[(4, 4)]),
+    Muravey("soldat", hex_grid[(6, 4)])
+]
+
+vybrannyy_muravey = None
 
 building_textures = {
     "Муравейник": ant_house_img
@@ -299,31 +341,50 @@ while running:
     screen.blit(stonewall1_img, (x, 500))
     screen.blit(scaled_map_img, (0,0))
     
-    
-    hovered_tile = hex_under_mouse(hex_grid)
-    
     if hud.is_mouse_over(mouse_pos):
         hovered_tile = None
     else:
         hovered_tile = hex_under_mouse(hex_grid)
-    
+
+    setka_sloy.fill((0, 0, 0, 0))
+
     for tile in hex_grid.values():
-        tile.draw(screen, color=(200, 200, 200), thick=3)
+        tile.draw(setka_sloy, color=(200, 200, 200, 90), thick=3)
+
     if hovered_tile is not None:
-        hovered_tile.draw(screen, color=(255, 255, 0), thick=6)
-    
-    rabochiy.narisovat(screen, kartinka_muravya)
-    
-    
+        hovered_tile.draw(setka_sloy, color=(255, 255, 0, 180), thick=6)
+
+    screen.blit(setka_sloy, (0, 0))
+
+    for muravey in muravi:
+        muravey.narisovat(screen, kartinka_muravya)
+
     hud.draw(screen)
-    
+
     test_button = TestButton("КЛИК НА МЕНЯ", 250, 250, True)
-    
-    
-    for event in pygame.event.get(): 
+
+    for event in pygame.event.get():
         if event.type == pygame.QUIT: #закрыть полностью игру при нажатие на крестик сверху
-            running = False    
-    
+            running = False
+
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1 and not hud.is_mouse_over(mouse_pos):
+                kletka = hex_under_mouse(hex_grid)
+
+                if kletka is not None:
+                    nazhatyy_muravey = None
+
+                    for muravey in muravi:
+                        if muravey.kletka is kletka and muravey.zdorovie > 0:
+                            nazhatyy_muravey = muravey
+                            break
+
+                    if nazhatyy_muravey is not None:
+                        vybrannyy_muravey = nazhatyy_muravey
+
+                    elif vybrannyy_muravey is not None:
+                        vybrannyy_muravey.peremestitsya(kletka)
+
     """#МЫШКА:
         if event.type == pygame.MOUSEBUTTONDOWN:
             print("КЛИК")
@@ -336,6 +397,4 @@ while running:
     pygame.display.update() #чтобы показывалось изображение
     
 
-pygame.quit() 
-
-
+pygame.quit()
