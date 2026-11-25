@@ -5,6 +5,7 @@ import math
 import json
 
 
+
 pygame.init()
 
 screen = pygame.display.set_mode((1600, 900)) #разрешение окна (16:9)
@@ -35,10 +36,12 @@ running = True #нужно чтобы игра сразу не закрывал�
 x = 1000
 clock = pygame.time.Clock()
 delta_time = 0.1
-font = pygame.font.Font(None, 18) #Сюда загрузить шрифт
+font = pygame.font.SysFont("arial", 18) #arial для всего
+font_smiles = pygame.font.SysFont("segoeuiemoji", 22) #для иконок и смайликов
 r_hex = 26
 HEX_GRID_WIDTH, HEX_GRID_HEIGHT = screen.get_size()
 HEX_GRID_RADIUS = r_hex
+
 
 """ДЕЛАЕМ ИЗ КАРТИНОК SURFACES:"""
 
@@ -69,15 +72,21 @@ pygame.draw.rect(screen, (255 * collision, 255, 0), target)
 """КЛАССЫ:"""
 #HUD
 class HUD:
-    def __init__(self, width_hud, height_hud, building_images):
+    def __init__(self, width_hud, height_hud, building_images, resources, resource_emojis):
         self.width_hud = width_hud
         self.height_hud = height_hud
         self.hud_colour = (174, 219, 242, 240) #последнее прозрачность, пока так так как иначе видно hexы
         self.building_images = building_images
+        self.selected_tile = None
+        self.resources = resources
         
+        self.resource_icons = {
+            name: font_smiles.render(emoji, True, (30, 30, 30))
+            for name, emoji in resource_emojis.items()
+        }
         
         #Панель ресурсов:
-        self.resources_surface = pygame.Surface((width_hud, height_hud * 0.02), pygame.SRCALPHA)
+        self.resources_surface = pygame.Surface((width_hud, height_hud * 0.04), pygame.SRCALPHA)
         self.resources_surface.fill(self.hud_colour)
         
         #Панель строений:
@@ -92,6 +101,8 @@ class HUD:
         self.resources_rect = self.resources_surface.get_rect(topleft=(0, 0))
         self.build_rect = self.build_surface.get_rect(topleft=(width_hud * 0.84, height_hud * 0.74))
         self.select_rect = self.select_surface.get_rect(topleft=(width_hud * 0.01, height_hud * 0.79))
+        
+        self.selected_tile = None
         
     def create_build_hud(self):
         x_start = self.width_hud * 0.84 + 15
@@ -115,6 +126,18 @@ class HUD:
                 render_pos[1] += icon.get_height() + 15
         return tiles
     
+    def update(self):
+        mouse_pos = pygame.mouse.get_pos()
+        mouse_action = pygame.mouse.get_pressed()
+        
+        if mouse_action[2]:
+            self.selected_tile = None
+        
+        for tile in self.tiles:
+            if tile["rect"].collidepoint(mouse_pos):
+                if mouse_action[0]:
+                    self.selected_tile = tile
+    
     def draw(self, screen):
         screen.blit(self.resources_surface, (0, 0))
         screen.blit(self.build_surface, (self.width_hud * 0.84, self.height_hud * 0.74))
@@ -122,6 +145,22 @@ class HUD:
         
         for tile in self.tiles:
             screen.blit(tile["icon"], tile["rect"].topleft)
+        
+        #Ресурсы:
+        pos = self.width_hud - 400
+        for resource, amount in self.resources.items():
+            if resource in self.resource_icons:
+                icon = self.resource_icons[resource]
+                icon_rect = icon.get_rect(midleft=(pos, self.resources_rect.centery))
+                screen.blit(icon, icon_rect)
+                text_x = icon_rect.right + 8
+            else:
+                text_x = pos
+            
+            text_surface = font.render(f"{resource}: {amount}", True, (20, 20, 20))
+            text_rect = text_surface.get_rect(midleft=(text_x, self.resources_rect.centery))
+            screen.blit(text_surface, text_rect)
+            pos += 180
     
     def scale_image(self, image, w=None, h=None):
         if (w == None) and (h == None):
@@ -146,6 +185,20 @@ class HUD:
             or self.select_rect.collidepoint(mouse_pos)
         )
 
+
+#Resource Manager
+class ResourceManager:
+    def __init__(self):
+        #Ресурсы:
+        self.resources = {
+            "wood": 10,
+            "stone": 10
+        }
+        
+        #Стоимость постройки:
+        self.costs = {
+            "ant_house": {"wood": 7, "stone": 3}
+        }
 
 #Кнопка:
 class TestButton:
@@ -323,13 +376,25 @@ muravi = [
 
 vybrannyy_muravey = None
 
+
+resources = {
+    "wood": 50,
+    "stone": 30
+}
+resource_emojis = {
+    "wood": "🌲",
+    "stone": "🪨",
+}
+
 building_textures = {
     "Муравейник": ant_house_img
 }
 
-hud = HUD(1600, 900, building_textures)
+hud = HUD(1600, 900, building_textures, resources, resource_emojis)
 
 while running:
+    
+    hud.update()
     
     delta_time = clock.tick(60) / 1000 #кол-во фпс на рендеринг
     delta_time = max(0.001, min(0.1, delta_time)) #убираем терринг при проблемы с кол-во кадров если слишком много или мало
@@ -359,7 +424,6 @@ while running:
     for muravey in muravi:
         muravey.narisovat(screen, kartinka_muravya)
 
-    hud.draw(screen)
 
     test_button = TestButton("КЛИК НА МЕНЯ", 250, 250, True)
 
@@ -381,9 +445,17 @@ while running:
 
                     if nazhatyy_muravey is not None:
                         vybrannyy_muravey = nazhatyy_muravey
-
+    
                     elif vybrannyy_muravey is not None:
                         vybrannyy_muravey.peremestitsya(kletka)
+    
+    if hud.selected_tile is not None and hovered_tile is not None:
+        preview_img = hud.selected_tile["icon"].copy()
+        preview_img.set_alpha(160)  # делаем чуть полупрозрачным
+        preview_rect = preview_img.get_rect(center=hovered_tile.center)
+        screen.blit(preview_img, preview_rect)
+    
+    hud.draw(screen)
 
     """#МЫШКА:
         if event.type == pygame.MOUSEBUTTONDOWN:
