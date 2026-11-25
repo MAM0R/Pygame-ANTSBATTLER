@@ -42,10 +42,16 @@ path_stonewall1 = os.path.join(textures_dir, "stoneWall1.png")
 stonewall1_img = pygame.image.load(path_stonewall1).convert_alpha()
 hitbox_stonewall1 = pygame.Rect(x, 30, stonewall1_img.get_width(), stonewall1_img.get_height())
 
+path_ant_house = os.path.join(textures_dir, "muraveynik.png")
+ant_house_img = pygame.image.load(path_ant_house).convert_alpha()
+
 path_map_img = os.path.join(textures_dir, "MainMap.png")
 map_img = pygame.image.load(path_map_img).convert_alpha()
 scaled_map_img = pygame.transform.scale(map_img, screen.get_size())
 
+kartinka_muravya = pygame.image.load(
+    os.path.join(textures_dir, "ant1.png")
+).convert_alpha()
 
 target = pygame.Rect(300, 0, 160, 280)
 collision = hitbox_stonewall1.colliderect(target)
@@ -57,6 +63,86 @@ pygame.draw.rect(screen, (255 * collision, 255, 0), target)
 
 
 """КЛАССЫ:"""
+#HUD
+class HUD:
+    def __init__(self, width_hud, height_hud, building_images):
+        self.width_hud = width_hud
+        self.height_hud = height_hud
+        self.hud_colour = (174, 219, 242, 240) #последнее прозрачность, пока так так как иначе видно hexы
+        self.building_images = building_images
+        
+        
+        #Панель ресурсов:
+        self.resources_surface = pygame.Surface((width_hud, height_hud * 0.02), pygame.SRCALPHA)
+        self.resources_surface.fill(self.hud_colour)
+        
+        #Панель строений:
+        self.build_surface = pygame.Surface((width_hud * 0.15, height_hud * 0.25), pygame.SRCALPHA)
+        self.build_surface.fill(self.hud_colour)
+        
+        #Выбрать HUD:
+        self.select_surface = pygame.Surface((width_hud * 0.3, height_hud * 0.2), pygame.SRCALPHA)
+        self.select_surface.fill(self.hud_colour)
+        self.tiles = self.create_build_hud()
+        
+        self.resources_rect = self.resources_surface.get_rect(topleft=(0, 0))
+        self.build_rect = self.build_surface.get_rect(topleft=(width_hud * 0.84, height_hud * 0.74))
+        self.select_rect = self.select_surface.get_rect(topleft=(width_hud * 0.01, height_hud * 0.79))
+        
+    def create_build_hud(self):
+        x_start = self.width_hud * 0.84 + 15
+        render_pos = [x_start, self.height_hud * 0.74 + 15]
+        tiles = []
+        object_width = self.build_surface.get_width() // 3
+        
+        for name, image in self.building_images.items():
+            icon = self.scale_image(image, w=object_width)
+            rect = icon.get_rect(topleft = render_pos)
+            
+            tiles.append({
+                "name": name,
+                "icon": icon,
+                "rect": rect
+            })
+            
+            render_pos[0] += object_width + 15
+            if render_pos[0] + object_width > self.width_hud * 0.99: #переносим на новую строчку вниз если вылазит за правый край экрана
+                render_pos[0] = x_start
+                render_pos[1] += icon.get_height() + 15
+        return tiles
+    
+    def draw(self, screen):
+        screen.blit(self.resources_surface, (0, 0))
+        screen.blit(self.build_surface, (self.width_hud * 0.84, self.height_hud * 0.74))
+        screen.blit(self.select_surface, (self.width_hud * 0.01, self.height_hud * 0.79))
+        
+        for tile in self.tiles:
+            screen.blit(tile["icon"], tile["rect"].topleft)
+    
+    def scale_image(self, image, w=None, h=None):
+        if (w == None) and (h == None):
+            pass
+        elif h is None:
+            scale = w / image.get_width()
+            h = scale * image.get_height()
+            image = pygame.transform.scale(image, (int(w), int(h)))
+        elif w is None:
+            scale = h / image.get_height()
+            w = scale * image.get_width()
+            image = pygame.transform.scale(image, (int(w), int(h)))
+        else:
+            image = pygame.transform.scale(image, (int(w), int(h)))
+        
+        return image
+    
+    def is_mouse_over(self, mouse_pos):
+        return(
+            self.resources_rect.collidepoint(mouse_pos)
+            or self.build_rect.collidepoint(mouse_pos)
+            or self.select_rect.collidepoint(mouse_pos)
+        )
+
+
 #Кнопка:
 class TestButton:
     def __init__(self, text, x_pos, y_pos, b_enabled):
@@ -190,34 +276,49 @@ def hex_under_mouse(grid):
 """Инициализация:"""
 hex_grid = create_hex_grid(HEX_GRID_WIDTH, HEX_GRID_HEIGHT, HEX_GRID_RADIUS)
 
-kartinka_muravya = pygame.image.load(
-    os.path.join(textures_dir, "ant1.png")
-).convert_alpha()
+
 
 rabochiy = Muravey("rabochiy", hex_grid[(4, 4)])
 
 
+building_textures = {
+    "Муравейник": ant_house_img
+}
 
+hud = HUD(1600, 900, building_textures)
 
 while running:
+    
+    delta_time = clock.tick(60) / 1000 #кол-во фпс на рендеринг
+    delta_time = max(0.001, min(0.1, delta_time)) #убираем терринг при проблемы с кол-во кадров если слишком много или мало
+    x += 50 * delta_time
+    
+    mouse_pos = pygame.mouse.get_pos()
+    
     screen.fill((128, 128, 128)) 
     screen.blit(stonewall1_img, (x, 500))
     screen.blit(scaled_map_img, (0,0))
     
-    delta_time = clock.tick(60) / 1000 #кол-во фпс на рендеринг
-    delta_time = max(0.001, min(0.1, delta_time)) #убираем терринг при проблемы с кол-во кадров если слишком много или мало
+    
     hovered_tile = hex_under_mouse(hex_grid)
+    
+    if hud.is_mouse_over(mouse_pos):
+        hovered_tile = None
+    else:
+        hovered_tile = hex_under_mouse(hex_grid)
     
     for tile in hex_grid.values():
         tile.draw(screen, color=(200, 200, 200), thick=3)
     if hovered_tile is not None:
         hovered_tile.draw(screen, color=(255, 255, 0), thick=6)
+    
     rabochiy.narisovat(screen, kartinka_muravya)
+    
+    
+    hud.draw(screen)
     
     test_button = TestButton("КЛИК НА МЕНЯ", 250, 250, True)
     
-    mouse_pos = pygame.mouse.get_pos()
-    x += 50 * delta_time
     
     for event in pygame.event.get(): 
         if event.type == pygame.QUIT: #закрыть полностью игру при нажатие на крестик сверху
