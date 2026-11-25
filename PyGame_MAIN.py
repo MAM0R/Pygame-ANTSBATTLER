@@ -90,13 +90,22 @@ class TestButton:
         
 
 #class Муравьёв:
+
 class Muravey:
-    def __init__(self):
-        self.zdorovie = 100
-        self.prohodimost = 3
-        self.uron = 10
-        self.bronya = 0
-        self.imya = "Муравей"
+    def __init__(pelmeshki, tip, kletka):
+        dannye = json_f[tip]
+
+        pelmeshki.imya = dannye["imya"]
+        pelmeshki.zdorovie = dannye["zdorovie"]
+        pelmeshki.prohodimost = dannye["prohodimost"]
+        pelmeshki.uron = dannye["uron"]
+        pelmeshki.bronya = dannye.get("bronya", 0)
+        pelmeshki.kletka = kletka
+
+    def narisovat(pelmeshki, poverhnost, kartinka):
+        mesto = kartinka.get_rect(center=pelmeshki.kletka.center)
+        poverhnost.blit(kartinka, mesto)
+
 #Логика получения урона
 def nanesti_uron(atakuyushiy, zashchitnik):
     fakt_uron = atakuyushiy.uron * (1 - zashchitnik.bronya / 100)
@@ -181,6 +190,12 @@ def hex_under_mouse(grid):
 """Инициализация:"""
 hex_grid = create_hex_grid(HEX_GRID_WIDTH, HEX_GRID_HEIGHT, HEX_GRID_RADIUS)
 
+kartinka_muravya = pygame.image.load(
+    os.path.join(textures_dir, "ant1.png")
+).convert_alpha()
+
+rabochiy = Muravey("rabochiy", hex_grid[(4, 4)])
+
 
 
 
@@ -197,7 +212,7 @@ while running:
         tile.draw(screen, color=(200, 200, 200), thick=3)
     if hovered_tile is not None:
         hovered_tile.draw(screen, color=(255, 255, 0), thick=6)
-
+    rabochiy.narisovat(screen, kartinka_muravya)
     
     test_button = TestButton("КЛИК НА МЕНЯ", 250, 250, True)
     
