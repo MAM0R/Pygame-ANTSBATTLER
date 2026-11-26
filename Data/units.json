@@ -311,21 +311,21 @@
     },
     "yacheyki": 3
   },
-  "bogomol": {
-    "nazvanie": "Богомол",
-    "zdorovie": 700,
+  "pauk": {
+    "nazvanie": "Паук",
+    "zdorovie": 900,
     "prohodimost": 3,
-    "uron": 100,
-    "bronya": 30,
+    "uron": 110,
+    "bronya": 25,
     "kolichestvo": 1,
     "odin": true,
-    "tekstura": null,
-    "shirina_kadra": 32,
-    "vysota_kadra": 32,
-    "razmer_na_karte": 40,
-    "razmer_v_boyu": 62,
-    "skorost_boya": 110,
-    "radius_boya": 0.3,
+    "tekstura": "spider2.png",
+    "shirina_kadra": 350,
+    "vysota_kadra": 350,
+    "razmer_na_karte": 48,
+    "razmer_v_boyu": 80,
+    "skorost_boya": 105,
+    "radius_boya": 0.32,
     "okrashivanie": false,
     "animatsii": {
       "pokoy": {
@@ -350,6 +350,10 @@
           [
             2,
             0
+          ],
+          [
+            3,
+            0
           ]
         ],
         "fps": 12
@@ -358,16 +362,28 @@
         "kadry": [
           [
             0,
-            0
+            1
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
           ]
         ],
-        "fps": 2
+        "fps": 14
       },
       "smert": {
         "kadry": [
           [
             0,
-            0
+            2
           ]
         ],
         "fps": 1
@@ -376,20 +392,20 @@
     "usiki": null,
     "yacheyki": 0
   },
-  "pauk": {
-    "nazvanie": "Паук",
-    "zdorovie": 900,
+  "tarantul": {
+    "nazvanie": "Тарантул",
+    "zdorovie": 1300,
     "prohodimost": 3,
-    "uron": 110,
-    "bronya": 25,
+    "uron": 125,
+    "bronya": 35,
     "kolichestvo": 1,
     "odin": true,
-    "tekstura": "spider2.png",
+    "tekstura": "spider.png",
     "shirina_kadra": 350,
     "vysota_kadra": 350,
     "razmer_na_karte": 48,
-    "razmer_v_boyu": 80,
-    "skorost_boya": 105,
+    "razmer_v_boyu": 100,
+    "skorost_boya": 95,
     "radius_boya": 0.32,
     "okrashivanie": false,
     "animatsii": {

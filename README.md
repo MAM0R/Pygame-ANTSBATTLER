@@ -2,7 +2,7 @@
   <img src="antsbattler-banner.gif" width="100%" alt="ANTSBATTLER — Маленький мир. Большая война.">
   <p>
     <img src="https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python">
-    <img src="https://img.shields.io/badge/Pygame-ce-526B45?style=flat-square" alt="Pygame">
+    <img src="https://img.shields.io/badge/Pygame-526B45?style=flat-square" alt="Pygame">
     <img src="https://img.shields.io/badge/Жанр-Стратегия-806548?style=flat-square" alt="Стратегия">
     <img src="https://img.shields.io/badge/Статус-В_разработке-646E59?style=flat-square" alt="В разработке">
   </p>
@@ -52,7 +52,7 @@
 
 <table>
   <tr>
-    <td align="center"><img src="Textures/muraveynik.png" width="80" alt="Муравейник"><br><b>Муравейник</b><br>Дерево, камень и 5 ячеек для бойцов</td>
+    <td align="center"><img src="Textures/muraveynik.png" width="80" alt="Муравейник"><br><b>Муравейник</b><br>Дерево, камень и 60 ячеек для бойцов</td>
     <td align="center"><img src="Textures/ferma.png" width="80" alt="Ферма"><br><b>Ферма</b><br>Производство дерева</td>
     <td align="center"><img src="Textures/kamenolomna.png" width="80" alt="Каменоломня"><br><b>Каменоломня</b><br>Производство камня</td>
   </tr>
@@ -63,7 +63,7 @@
 Для запуска необходимы Python и библиотека Pygame. Откройте терминал в корневой папке проекта:
 
 ```powershell
-python -m pip install pygame-ce
+python -m pip install pygame
 python PyGame_MAIN.py
 ```
 

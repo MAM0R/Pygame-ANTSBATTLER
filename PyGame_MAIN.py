@@ -5,7 +5,7 @@ import math
 import json
 import heapq #для работы с большой структурой данных
 
-
+from menu import MainMenu, MenuBackground
 
 pygame.init()
 
@@ -64,8 +64,6 @@ clock = pygame.time.Clock()
 delta_time = 0.1
 font = pygame.font.SysFont("Russo One", 18) #Russo One для всего
 font_smiles = pygame.font.SysFont("segoeuiemoji", 22) #для иконок и смайликов
-if pygame.font.match_font("Russo One") is None:
-    print("Шрифт Russo One не установлен, Pygame использует системную замену.")
 shrifty = {18: font}
 
 
@@ -75,7 +73,7 @@ def poluchit_shrift(razmer):
     return shrifty[razmer]
 
 
-# Размеры шрифтов готовим сразу, а не каждый раз при открытии окна.
+#Подготовка размера шрифта:
 for razmer_shrifta in (12, 13, 16, 20, 21, 22, 26, 27, 29, 30, 42):
     poluchit_shrift(razmer_shrifta)
 
@@ -114,31 +112,34 @@ class HUD:
         self.resource_manager = resource_manager
         self.width_hud = width_hud
         self.height_hud = height_hud
-        self.hud_colour = (174, 219, 242, 240) #последнее прозрачность, пока так так как иначе видно hexы
+        self.hud_colour = (26, 37, 29, 232)
         self.building_images = building_images
         self.selected_tile = None
-        
+
+        emoji_colors = {
+            "wood": (205, 165, 118),
+            "stone": (182, 190, 196)
+        }
         self.resource_icons = {
-            name: font_smiles.render(emoji, True, (30, 30, 30))
+            name: font_smiles.render(emoji, True, emoji_colors.get(name, (230, 224, 204)))
             for name, emoji in resource_emojis.items()
         }
-        self.turn_icon = font_smiles.render("⏳", True, (30, 30, 30))
-        self.unit_icon = font_smiles.render("🐜", True, (30, 30, 30))
-        
-        
+        self.turn_icon = font_smiles.render("⏳", True, (226, 196, 122))
+        self.unit_icon = font_smiles.render("🐜", True, (222, 226, 214))
+
         #Панель ресурсов:
         self.resources_surface = pygame.Surface((width_hud, int(height_hud * 0.04)), pygame.SRCALPHA)
         self.resources_surface.fill(self.hud_colour)
-        
+
         #Панель строений:
         self.build_surface = pygame.Surface((int(width_hud * 0.15), int(height_hud * 0.25)), pygame.SRCALPHA)
         self.build_surface.fill(self.hud_colour)
-        
+
         #Выбрать HUD:
         self.select_surface = pygame.Surface((int(width_hud * 0.3), int(height_hud * 0.2)), pygame.SRCALPHA)
         self.select_surface.fill(self.hud_colour)
         self.tiles = self.create_build_hud()
-        
+
         self.resources_rect = self.resources_surface.get_rect(topleft=(0, 0))
         self.build_rect = self.build_surface.get_rect(topleft=(width_hud * 0.84, height_hud * 0.74))
         self.select_rect = self.select_surface.get_rect(topleft=(width_hud * 0.01, height_hud * 0.79))
@@ -161,54 +162,62 @@ class HUD:
         render_pos = [x_start, self.height_hud * 0.74 + 15]
         tiles = []
         object_width = self.build_surface.get_width() // 3
-        
+
         for name, image in self.building_images.items():
             icon = self.scale_image(image, w=object_width)
             rect = icon.get_rect(topleft = render_pos)
-            
+
             tiles.append({
                 "name": name,
                 "icon": icon,
                 "rect": rect
             })
-            
+
             render_pos[0] += object_width + 15
             if render_pos[0] + object_width > self.width_hud * 0.99: #переносим на новую строчку вниз если вылазит за правый край экрана
                 render_pos[0] = x_start
                 render_pos[1] += icon.get_height() + 15
         return tiles
-    
+
     def update(self):
         mouse_pos = pygame.mouse.get_pos()
         mouse_action = pygame.mouse.get_pressed()
-        
+
         if mouse_action[2]:
             self.selected_tile = None
-        
+
         for tile in self.tiles:
             if tile["rect"].collidepoint(mouse_pos):
                 if mouse_action[0]:
                     self.selected_tile = tile
-    
+
     def draw(self, screen, unit_count = 0, max_units = 0, turn_number=1, selected_ant_house=None):
         screen.blit(self.resources_surface, (0, 0))
         screen.blit(self.build_surface, (self.width_hud * 0.84, self.height_hud * 0.74))
         screen.blit(self.select_surface, (self.width_hud * 0.01, self.height_hud * 0.79))
-        
+
+        pygame.draw.line(screen, (96, 116, 90), (0, self.resources_rect.bottom), (self.width_hud, self.resources_rect.bottom), 1)
+        pygame.draw.rect(screen, (96, 116, 90), self.build_rect, 1)
+        pygame.draw.rect(screen, (96, 116, 90), self.select_rect, 1)
+
+        mouse_pos = pygame.mouse.get_pos()
         for tile in self.tiles:
+            slot_rect = tile["rect"].inflate(8, 8)
+            is_selected = self.selected_tile is tile
+            is_hovered = tile["rect"].collidepoint(mouse_pos)
+            slot_bg = (52, 70, 54) if is_hovered or is_selected else (38, 52, 40)
+            slot_border = (224, 192, 110) if is_selected else (88, 108, 84)
+            pygame.draw.rect(screen, slot_bg, slot_rect, border_radius=3)
+            pygame.draw.rect(screen, slot_border, slot_rect, 2 if is_selected else 1, border_radius=3)
             screen.blit(tile["icon"], tile["rect"].topleft)
-        
-        if self.selected_tile is not None:
-            pygame.draw.rect(screen, (255, 255, 0), self.selected_tile["rect"], 3)
 
         #Панель найма в Муравейнике:
         if selected_ant_house is not None:
-            pygame.draw.rect(screen, (255, 220, 80), self.select_rect, 2)
+            pygame.draw.rect(screen, (196, 172, 108), self.select_rect, 2)
             free_slots = max(0, max_units - unit_count)
-            header = font.render(f"Муравейник  |  Свободно ячеек: {free_slots}", True, (20, 20, 20))
+            header = font.render(f"Муравейник  ·  Свободно ячеек: {free_slots}", True, (236, 234, 222))
             screen.blit(header, (self.select_rect.left + 16, self.select_rect.top + 14))
 
-            mouse_pos = pygame.mouse.get_pos()
             for btn in self.recruit_buttons:
                 unit_type = btn["unit_type"]
                 rect = btn["rect"]
@@ -221,28 +230,28 @@ class HUD:
                 hovered = rect.collidepoint(mouse_pos)
 
                 if not has_slot:
-                    bg_color = (120, 125, 130)
-                    border_color = (80, 85, 90)
-                    cost_color = (220, 90, 90)
+                    bg_color = (48, 52, 50)
+                    border_color = (82, 86, 82)
+                    cost_color = (205, 118, 110)
                 elif not can_afford:
-                    bg_color = (145, 110, 110)
-                    border_color = (180, 70, 70)
-                    cost_color = (255, 210, 210)
+                    bg_color = (66, 48, 46)
+                    border_color = (128, 78, 72)
+                    cost_color = (218, 150, 142)
                 else:
-                    bg_color = (115, 200, 130) if hovered else (85, 175, 105)
-                    border_color = (255, 255, 220)
-                    cost_color = (20, 35, 20)
+                    bg_color = (64, 92, 62) if hovered else (48, 70, 49)
+                    border_color = (156, 184, 142) if hovered else (108, 134, 98)
+                    cost_color = (218, 224, 198)
 
-                pygame.draw.rect(screen, bg_color, rect, border_radius=8)
-                pygame.draw.rect(screen, border_color, rect, 2, border_radius=8)
+                pygame.draw.rect(screen, bg_color, rect, border_radius=4)
+                pygame.draw.rect(screen, border_color, rect, 1, border_radius=4)
 
-                title_surf = font.render(btn["title"], True, (15, 20, 15))
+                title_surf = font.render(btn["title"], True, (238, 236, 224))
                 screen.blit(title_surf, title_surf.get_rect(midtop=(rect.centerx, rect.top + 14)))
 
                 unit_data = units[unit_type]
                 stats_surf = font.render(
-                    f"ХП: {unit_data['zdorovie']} | Урон: {unit_data['uron']}",
-                    True, (30, 35, 30)
+                    f"ХП: {unit_data['zdorovie']}  |  Урон: {unit_data['uron']}",
+                    True, (186, 198, 178)
                 )
                 screen.blit(stats_surf, stats_surf.get_rect(center=(rect.centerx, rect.centery + 2)))
 
@@ -250,22 +259,23 @@ class HUD:
                 cost_surf = font.render(cost_text, True, cost_color)
                 screen.blit(cost_surf, cost_surf.get_rect(midbottom=(rect.centerx, rect.bottom - 12)))
         else:
-            hint = font.render("Кликни по Муравейнику, чтобы нанять войнов", True, (35, 45, 55))
+            hint = font.render("Кликни по Муравейнику, чтобы нанять войнов", True, (164, 178, 158))
             screen.blit(hint, hint.get_rect(center=self.select_rect.center))
-        
+
         #Верхняя панель:
         turn_icon_rect = self.turn_icon.get_rect(midleft=(20, self.resources_rect.centery))
         screen.blit(self.turn_icon, turn_icon_rect)
-        turn_text = font.render(f"Ход: {turn_number}", True, (20, 20, 20))
+        turn_text = font.render(f"Ход: {turn_number}", True, (238, 236, 224))
         turn_rect = turn_text.get_rect(midleft=(turn_icon_rect.right + 8, self.resources_rect.centery))
         screen.blit(turn_text, turn_rect)
-        unit_icon_rect = self.unit_icon.get_rect(midleft=(turn_rect.right + 25, self.resources_rect.centery))
+        unit_icon_rect = self.unit_icon.get_rect(midleft=(turn_rect.right + 28, self.resources_rect.centery))
         screen.blit(self.unit_icon, unit_icon_rect)
-        units_text = font.render(f"Ячейки юнитов: {unit_count}/{max_units}", True, (20, 20, 20))
+        units_text = font.render(f"Отряды: {unit_count}/{max_units}", True, (238, 236, 224))
         units_rect = units_text.get_rect(midleft=(unit_icon_rect.right + 8, self.resources_rect.centery))
         screen.blit(units_text, units_rect)
-        
+
         #Ресурсы:
+        resource_names = {"wood": "Дерево", "stone": "Камень"}
         pos = self.width_hud - 420
         for resource, resource_value in self.resource_manager.resources.items():
             if resource in self.resource_icons:
@@ -275,12 +285,13 @@ class HUD:
                 text_x = icon_rect.right + 8
             else:
                 text_x = pos
-            
-            text_surface = font.render(f"{resource}: {resource_value}", True, (20, 20, 20))
+
+            label = resource_names.get(resource, resource)
+            text_surface = font.render(f"{label}: {resource_value}", True, (238, 236, 224))
             text_rect = text_surface.get_rect(midleft=(text_x, self.resources_rect.centery))
             screen.blit(text_surface, text_rect)
-            pos += 180
-    
+            pos += 200
+
 
     def scale_image(self, image, w=None, h=None):
         if (w == None) and (h == None):
@@ -295,9 +306,9 @@ class HUD:
             image = pygame.transform.scale(image, (int(w), int(h)))
         else:
             image = pygame.transform.scale(image, (int(w), int(h)))
-        
+
         return image
-    
+
     def is_mouse_over(self, mouse_pos):
         return(
             self.resources_rect.collidepoint(mouse_pos)
@@ -314,7 +325,7 @@ class ResourceManager:
             "wood": 40,
             "stone": 40
         }
-        
+
         #Стоимость постройки:
         self.costs = {
             "Stone_Farm": {"wood": 15, "stone": 3},
@@ -338,14 +349,14 @@ class ResourceManager:
             if cost > self.resources[resource]:
                 b_affordable = False
         return b_affordable
-    
+
     def is_unit_affordable(self, unit_type):
         b_affordable_unit = True
         for resource, cost in self.unit_costs[unit_type].items():
             if cost > self.resources.get(resource, 0):
                 b_affordable_unit = False
         return b_affordable_unit
-    
+
     def apply_unit_cost(self, unit_type):
         for resource, cost in self.unit_costs[unit_type].items():
             self.resources[resource] -= cost
@@ -414,35 +425,35 @@ class EndTurnButton:
     def __init__(self, text, x_pos, y_pos, width, height):
         self.rect = pygame.Rect(x_pos, y_pos, width, height)
         self.text = text
-    
+
     def is_hovered(self, mouse_pos):
         return self.rect.collidepoint(mouse_pos)
 
     def handle_click(self, mouse_pos, b_enabled):
         return b_enabled and self.rect.collidepoint(mouse_pos)
-    
+
     def draw(self, surface, turn_number, b_enabled, has_unused_moves):
         mouse_pos = pygame.mouse.get_pos()
         hovered = self.is_hovered(mouse_pos)
-        
+
         if not b_enabled:
-            bg_color = (95, 100, 105)
-            border_color = (60, 65, 70)
-            text_color = (180, 180, 180)
+            bg_color = (52, 58, 54)
+            border_color = (82, 88, 84)
+            text_color = (150, 156, 148)
             label = "Ожидание..."
         elif not has_unused_moves:
-            bg_color = (85, 175, 95) if hovered else (65, 145, 75)
-            border_color = (230, 255, 220)
-            text_color = (255, 255, 255)
+            bg_color = (82, 128, 76) if hovered else (66, 108, 62)
+            border_color = (166, 202, 154)
+            text_color = (240, 244, 236)
             label = f"{self.text} ({turn_number})"
         else:
-            bg_color = (235, 180, 75) if hovered else (205, 160, 55)
-            border_color = (255, 240, 180)
-            text_color = (25, 20, 10)
+            bg_color = (162, 126, 62) if hovered else (138, 106, 52)
+            border_color = (212, 186, 122)
+            text_color = (245, 240, 224)
             label = f"{self.text} ({turn_number})"
-        
-        pygame.draw.rect(surface, bg_color, self.rect, border_radius=8)
-        pygame.draw.rect(surface, border_color, self.rect, 2, border_radius=8)
+
+        pygame.draw.rect(surface, bg_color, self.rect, border_radius=4)
+        pygame.draw.rect(surface, border_color, self.rect, 1, border_radius=4)
 
         text_surf = font.render(label, True, text_color)
         surface.blit(text_surf, text_surf.get_rect(center=self.rect.center))
@@ -457,19 +468,19 @@ class EventPopup:
         self.accent_color = accent_color
         self.button_text = button_text
         self.battle_data = battle_data
-        
+
         self.panel = pygame.Rect(470, 225, 660, 420)
         self.button_rect = pygame.Rect(self.panel.centerx - 140, self.panel.bottom - 76, 280, 50)
         self.dim_overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
         self.dim_overlay.fill((8, 14, 22, 180))
-        
+
         #Текст компоненты вынесены отдельно для более гармоничного вида:
         self.title_font = poluchit_shrift(26)
         self.body_font = pygame.font.SysFont("PT Sans", 20)
         self.badge_font = poluchit_shrift(18)
         self.emoji_surface = pygame.font.SysFont("segoeuiemoji", 44).render(emoji, True, accent_color)
-    
-    
+
+
     def wrap_text(self, text, max_width):
         words = text.split()
         lines = []
@@ -482,54 +493,52 @@ class EventPopup:
                 if current_line:
                     lines.append(current_line)
                 current_line = word
-        
+
         if current_line:
             lines.append(current_line)
-        
+
         return lines
-    
-    
+
+
     def handle_click(self, mouse_pos):
         return self.button_rect.collidepoint(mouse_pos)
-    
-    
+
+
     def draw(self, surface):
         surface.blit(self.dim_overlay, (0, 0))
-        pygame.draw.rect(surface, (26, 33, 42), self.panel, border_radius=12)
-        pygame.draw.rect(surface, self.accent_color, self.panel, 3, border_radius=12)
-        
-        header_rect = pygame.Rect(self.panel.left + 3, self.panel.top + 3, self.panel.width - 6, 86)
-        pygame.draw.rect(surface, (36, 45, 56), header_rect, border_top_left_radius=9, border_top_right_radius=9)
-        
-        emoji_bg = pygame.Rect(self.panel.left + 26, self.panel.top + 18, 56, 56)
-        pygame.draw.rect(surface, (22, 28, 36), emoji_bg, border_radius=10)
-        surface.blit(self.emoji_surface, self.emoji_surface.get_rect(center = emoji_bg.center))
-        
-        title_surf = self.title_font.render(self.title, True, (245, 245, 245))
+        pygame.draw.rect(surface, (30, 42, 33), self.panel, border_radius=4)
+        pygame.draw.rect(surface, (112, 132, 104), self.panel, 2, border_radius=4)
+
+        header_rect = pygame.Rect(self.panel.left + 2, self.panel.top + 2, self.panel.width - 4, 84)
+        pygame.draw.rect(surface, (41, 56, 44), header_rect)
+        pygame.draw.line(surface, (84, 104, 80), (header_rect.left, header_rect.bottom), (header_rect.right, header_rect.bottom), 1)
+
+        emoji_bg = pygame.Rect(self.panel.left + 24, self.panel.top + 16, 54, 54)
+        pygame.draw.rect(surface, (26, 36, 28), emoji_bg, border_radius=4)
+        pygame.draw.rect(surface, (92, 114, 88), emoji_bg, 1, border_radius=4)
+        surface.blit(self.emoji_surface, self.emoji_surface.get_rect(center=emoji_bg.center))
+
+        title_surf = self.title_font.render(self.title, True, (241, 243, 238))
         surface.blit(title_surf, title_surf.get_rect(midleft=(emoji_bg.right + 18, emoji_bg.centery)))
-        
+
         y_pos = self.panel.top + 122
         for line in self.wrap_text(self.description, self.panel.width - 70):
-            line_surf = self.body_font.render(line, True, (218, 224, 230))
+            line_surf = self.body_font.render(line, True, (212, 222, 208))
             surface.blit(line_surf, line_surf.get_rect(midtop=(self.panel.centerx, y_pos)))
             y_pos += 30
-            
+
         badge_box = pygame.Rect(self.panel.left + 45, self.panel.bottom - 148, self.panel.width - 90, 48)
-        pygame.draw.rect(surface, (34, 43, 54), badge_box, border_radius=10)
-        pygame.draw.rect(surface, self.accent_color, badge_box, 1, border_radius=10)
-        badge_surf = self.badge_font.render(self.badge_text, True, self.accent_color)
-        surface.blit(badge_surf, badge_surf.get_rect(center = badge_box.center))
-        
+        pygame.draw.rect(surface, (42, 57, 45), badge_box, border_radius=4)
+        pygame.draw.rect(surface, (96, 118, 92), badge_box, 1, border_radius=4)
+        badge_surf = self.badge_font.render(self.badge_text, True, (236, 218, 162))
+        surface.blit(badge_surf, badge_surf.get_rect(center=badge_box.center))
+
         hovered = self.button_rect.collidepoint(pygame.mouse.get_pos())
-        btn_color = ( #ЦВЕТ КНОПКИ
-            min(255, self.accent_color[0] + 25),
-            min(255, self.accent_color[1] + 25),
-            min(255, self.accent_color[2] + 25),
-        ) if hovered else self.accent_color
-        
-        pygame.draw.rect(surface, btn_color, self.button_rect, border_radius=8)
-        pygame.draw.rect(surface, (240, 240, 240), self.button_rect, 2, border_radius=8)
-        btn_label = font.render(self.button_text, True, (18, 22, 26))
+        btn_color = (102, 134, 86) if hovered else (82, 110, 70)
+
+        pygame.draw.rect(surface, btn_color, self.button_rect, border_radius=4)
+        pygame.draw.rect(surface, (156, 182, 142), self.button_rect, 1, border_radius=4)
+        btn_label = font.render(self.button_text, True, (242, 244, 238))
         surface.blit(btn_label, btn_label.get_rect(center=self.button_rect.center))
 
 
@@ -557,7 +566,6 @@ class ZagruzchikAtlasov:
     def podgotovit_tip(self, tip):
         dannye = units[tip]
         if not dannye.get("tekstura"):
-            # Это пока затычка для богомола, отдельного атласа для него нет.
             kadr = kadry_muravya[0]
             trup = pygame.transform.rotate(kadr, 180)
             trup.fill((135, 135, 135, 255), special_flags=pygame.BLEND_RGBA_MULT)
@@ -571,7 +579,6 @@ class ZagruzchikAtlasov:
                            for koord in opisanie["kadry"]]
                     for imya, opisanie in dannye["animatsii"].items()}
 
-        # Центр у всех кадров один, в том числе у тела с усиками.
         razmer = (w * 2, h * 2)
         tsentr = (w, h)
         def polozhit(kadr, tocka):
@@ -696,7 +703,6 @@ class Boets:
         kartinka = self.animatsiya.kartinka(self.ugol)
         pozitsiya = self.pozitsiya
         if not units[self.tip].get("tekstura") and self.tsel_udara is not None and self.zhiv:
-            # У старого спрайта удара нет, поэтому немного двигаем тело вперёд.
             vektor = self.tsel_udara.pozitsiya - pozitsiya
             if vektor.length_squared() > .01:
                 pozitsiya = pozitsiya + vektor.normalize() * 5 * math.sin(math.pi * min(1, self.vremya_ataki / self.animatsiya.dlitelnost_ataki()))
@@ -752,7 +758,6 @@ class BoevoyII:
     def nayti_tsel(self, boets, vragi, nagruzka):
         if not vragi:
             return None
-        # Если у цели уже закончился лимит потерь, ищем другую, пока есть кого добивать.
         dostupnye = [vrag for vrag in vragi if self.mozhno_ubit(vrag)] or vragi
         return min(dostupnye, key=lambda vrag: boets.pozitsiya.distance_to(vrag.pozitsiya) + nagruzka.get(vrag, 0) * boets.radius * 1.4)
 
@@ -780,7 +785,7 @@ class BoevoyII:
         if not zhivye:
             return
         razmer_kletki = max(8, 2 * max(b.radius for b in zhivye))
-        # В большой битве проверяем соседние клетки, а не все пары на арене.
+        #БЕЗ ПРОВЕРКИ ПАР НА АРЕНЕ!
         for _ in range(2):
             setka = {}
             for b in zhivye:
@@ -819,14 +824,11 @@ class BoevoyII:
         storona = tsel.storona
         if not self.mozhno_ubit(tsel):
             return
-        # Потери считаются заранее, удар только решает, кто именно погибнет.
         proshlo = self.vremya - self.nachalo_udarov
         razresheno = min(self.poteri[storona], 1+int(self.poteri[storona]*proshlo/5.5))
         if self.poteri[storona] - (self.ostalos[storona]-self.vyzhivet[storona]) >= razresheno:
             return
         drugaya = 1-storona
-        # Не даём одной армии исчезнуть слишком рано, иначе последнему бойцу
-        # придётся в одиночку добивать десятки противников.
         if self.poteri[drugaya]:
             pogiblo = self.poteri[storona] - (self.ostalos[storona]-self.vyzhivet[storona])
             pogiblo_drugih = self.poteri[drugaya] - (self.ostalos[drugaya]-self.vyzhivet[drugaya])
@@ -931,7 +933,6 @@ class BoevoyII:
         if self.ostalos == self.vyzhivet and self.vremya >= 8:
             self.zakonchen = True
         elif self.vremya >= 18:
-            # Если бойцы застряли, результат всё равно должен совпасть с расчётом.
             self.avarijno = self.ostalos != self.vyzhivet
             for i in range(2):
                 kandidaty = sorted((b for b in self.po_storonam[i] if b.zhiv), key=lambda b: -b.udary)
@@ -957,7 +958,7 @@ def yacheyki_sostava(sostav):
     return sum(kol * units[tip].get("yacheyki", 0) for tip, kol in sostav.items())
 
 
-# Муравьи и их перемещение
+#Муравьи & Перемещение муравьёв:
 class Muravey:
     def __init__(pelmeshki, tip, kletka, komanda="igrok", kolichestvo=None):
         dannye = units[tip]
@@ -987,7 +988,7 @@ class Muravey:
         pelmeshki.obnovit_sostav(pelmeshki.sostav)
 
     def obnovit_sostav(pelmeshki, sostav):
-        # Количество берём из состава, иначе после разделения цифры могут разойтись.
+        #Кол-во из состава ТОЛЬКО ИНАЧЕ НЕ ТЕ ЗНАЧЕНИЯ:
         pelmeshki.sostav = {tip: sostav[tip] for tip in units if sostav.get(tip, 0) > 0}
         pelmeshki.kolichestvo = sum(pelmeshki.sostav.values())
         if not pelmeshki.sostav:
@@ -1002,7 +1003,7 @@ class Muravey:
         pelmeshki.bronya = dannye.get("bronya", 0)
         pelmeshki.prohodimost = min(units[tip]["prohodimost"] for tip in pelmeshki.sostav)
         pelmeshki.ostalos_hodov = min(pelmeshki.ostalos_hodov, pelmeshki.prohodimost)
-        # На карте у смешанного отряда два маленьких спрайта вместо одного большого.
+        #2 Малых спрайта вместо 1 спрайта:
         pelmeshki.animatsii = {
             tip: Animatsiya(tip, pelmeshki.komanda,
                            round(units[tip].get("razmer_na_karte", 40) * (.65 if len(pelmeshki.sostav) > 1 else 1)))
@@ -1036,7 +1037,7 @@ class Muravey:
         poverhnost.blit(chislo, chislo.get_rect(center=podlozhka.center))
 
         if pelmeshki.odin:
-            # Подпись нужна, чтобы одиночных врагов было проще различать на карте.
+            #Различаем одиноких врагов
             imya = shrift_imen_vragov.render(pelmeshki.nazvanie, True, (255, 235, 190))
             poverhnost.blit(imya, imya.get_rect(midbottom=(mesto.centerx, mesto.top - 3)))
 
@@ -1129,7 +1130,7 @@ def nanesti_uron(atakuyushiy, zashchitnik):
 
 
 def rasschitat_boy(levyy, pravyy):
-    # Победителя считаем заранее, ИИ только показывает как прошёл бой.
+    #Победителя считаем заранее:
     sila_levogo = levyy.poluchit_silu()
     sila_pravogo = pravyy.poluchit_silu()
     kol_levogo = levyy.kolichestvo
@@ -1145,7 +1146,6 @@ def rasschitat_boy(levyy, pravyy):
         sila_pobedy = max(sila_levogo, sila_pravogo)
         sila_porazheniya = min(sila_levogo, sila_pravogo)
 
-        # Чем ближе силы отрядов, тем больше потери. У победителя останется хотя бы один живой.
         dolya_poter = (sila_porazheniya / sila_pobedy) ** 1.5
         umerlo_u_pobeditelya = min(
             pobedivshih.kolichestvo - 1,
@@ -1169,7 +1169,7 @@ def rasschitat_boy(levyy, pravyy):
 
 
 def raspredelit_poteri(sostav, vyzhilo):
-    # Округляем потери так, чтобы лишний муравей не появился из-за дробных чисел.
+    #Округляем потери так, чтобы лишний муравей не появился из-за дробных чисел:
     vsego = sum(sostav.values())
     if not vsego:
         return {}
@@ -1204,7 +1204,6 @@ class Avtoboy:
         tip_polya_boya = provintsii_kletok.get(koord_zashchitnika, "polya")
         self.palette = self.poluchit_paltru_boya(tip_polya_boya)
 
-        # На больших отрядах ужимаем отдельные спрайты, но не подменяем армию одной картинкой.
         self.ii = BoevoyII(self.arena, levyy, pravyy, self.itog)
 
     def poluchit_paltru_boya(self, tip):
@@ -1478,24 +1477,24 @@ class Hex: #$\sqrt{\Delta x^2 + \Delta y^2}$)
         self.center = pygame.math.Vector2(hex_x, hex_y)
         self.neighbor_distance = (hex_radius * 2) ** 2
         self.radius = hex_radius
-        
+
         self.table_points = []
         for i in range(6):
             radius_angle = math.radians(60 * i)
             px = hex_x + hex_radius * math.cos(radius_angle) #координата вершины по x
             py = hex_y + hex_radius * math.sin(radius_angle) #координата вершины по y
             self.table_points.append((px, py))
-            
+
         self.event = None
         self.event_state = None
         self.is_water = False
-    
+
     def is_has_neighbor(self, other_hex): #Проверка если ли соседняя клетка рядом с ней
         if other_hex is None or other_hex == self:
             return False
-        
+
         return self.center.distance_squared_to(other_hex.center) < self.neighbor_distance
-    
+
     def draw(self, surface, color, thick):
         pygame.draw.polygon(surface, color, self.table_points, thick)
 
@@ -1504,10 +1503,10 @@ def create_hex_grid(hex_grid_width, hex_grid_height, hex_grid_radius):
     grid = {} #{(col, row): Hex}
     step_x = 1.5 * hex_grid_radius
     step_y = math.sqrt(3) * hex_grid_radius
-    
+
     hex_colons = int(hex_grid_width // step_x) + 1
     hex_rows = int(hex_grid_height // step_y) + 1
-    
+
     for col in range(hex_colons):
         for row in range(hex_rows):
             hex_grid_x = col * step_x + hex_grid_radius
@@ -1516,7 +1515,7 @@ def create_hex_grid(hex_grid_width, hex_grid_height, hex_grid_radius):
                 hex_grid_y += step_y / 2 #сдвигаем нечётный столбец вниз на половину
             if hex_grid_x < hex_grid_width and hex_grid_y < hex_grid_height: #не добавляем hexы за экраном
                 grid[(col, row)] = Hex(row, col, hex_grid_x, hex_grid_y, hex_grid_radius)
-                
+
     return grid
 
 #HEX TOOL (Конкретная клетка под курсором мыши):
@@ -1532,7 +1531,7 @@ def hex_under_mouse(grid, mouse_pos=None):
         if dist < min_dist:
             min_dist = dist
             closest_hex = hex_tile
-            
+
     if closest_hex and min_dist <= closest_hex.radius:
         return closest_hex
     return None
@@ -1578,7 +1577,6 @@ def nayti_dostupnye_kletki(muravey, zapas=None):
         for drugoy in muravi
         if drugoy is not muravey and drugoy.zdorovie > 0
     }
-    # Клетки чужого маршрута тоже заняты, иначе два отряда могут прийти в одну точку.
     zanyatye.update((k.col, k.row) for drugoy in muravi
                     if drugoy is not muravey and drugoy.zdorovie > 0 for k in drugoy.marshrut)
     if zapas is None:
@@ -1667,7 +1665,7 @@ def scale_building_image(image, size):
 def can_place_building(tile, building_type):
     coords = (tile.col, tile.row)
     terrain = tipy_provintsiy[provintsii_kletok[coords]]
-    #ФИКС НЕ ПОСТАВИТЬ ЗДАНИЕ ПОД НОГАМИ
+    #ФИКС НЕ ПОСТАВИТЬ ЗДАНИЕ ПОД НОГАМИ!
     is_occupied = any(
         unit.zdorovie > 0 and (unit.kletka is tile or tile in unit.marshrut)
         for unit in muravi
@@ -1937,22 +1935,22 @@ def trigger_hex_event(player_ant, tile):
 def draw_tile_markers(surface):
     for tile in hex_grid.values():
         if tile.build_unlocked:
-            border_color = (90, 235, 165) if tile.building is None else (235, 200, 95)
-            pygame.draw.polygon(surface, border_color, tile.table_points, 3)
+            border_color = (118, 206, 148) if tile.building is None else (210, 180, 102)
+            pygame.draw.polygon(surface, border_color, tile.table_points, 2)
 
         if tile.event is not None:
             cx, cy = int(tile.center.x), int(tile.center.y)
             is_failed = tile.event_state == "failed_battle"
-            color = (255, 65, 65) if is_failed else (255, 230, 0)
+            color = (226, 82, 76) if is_failed else (238, 204, 82)
             symbol = "!" if is_failed else "?"
 
-            shadow = marker_font.render(symbol, True, (15, 15, 20))
+            shadow = marker_font.render(symbol, True, (18, 22, 20))
             mark = marker_font.render(symbol, True, color)
             surface.blit(shadow, shadow.get_rect(center=(cx + 1, cy + 1)))
             surface.blit(mark, mark.get_rect(center=(cx, cy)))
 
 
-# Управление составом отрядов
+#СОСТАВ ОТРЯДА:
 
 def nayti_otryad_na_kletke(kletka):
     return next((m for m in muravi if m.kletka is kletka and m.zdorovie > 0), None)
@@ -1993,11 +1991,9 @@ def obiedinit_otryady(otryad, sosed):
     sostav = dict(sosed.sostav)
     for tip, kol in otryad.sostav.items():
         sostav[tip] = sostav.get(tip, 0) + kol
-    # Берём минимальный остаток, иначе можно будет восстанавливать очки объединением.
     sosed.ostalos_hodov = min(otryad.ostalos_hodov, sosed.ostalos_hodov)
     sosed.atakoval_v_etom_hodu = otryad.atakoval_v_etom_hodu or sosed.atakoval_v_etom_hodu
     sosed.obnovit_sostav(sostav)
-    # Это объединение, а не смерть отряда, поэтому эффект смерти не запускаем.
     muravi.remove(otryad)
     otryad.sostav.clear()
     otryad.kolichestvo = otryad.zdorovie = 0
@@ -2035,7 +2031,6 @@ def razdelit_otryad(otryad, sostav, kletka):
         novyy.marshrut.append(hex_grid[tekushchaya])
         tekushchaya = otkuda[tekushchaya]
     novyy.marshrut.reverse()
-    # Старый отряд никуда не идёт, поэтому очки у него остаются.
     novyy.ostalos_hodov -= dostupnye[koord]
     otryad.obnovit_sostav({tip: kol-sostav.get(tip, 0) for tip, kol in otryad.sostav.items()})
     muravi.append(novyy)
@@ -2221,7 +2216,8 @@ class OknoRazdeleniya(OknoSostava):
         self.narisovat_knopku(poverhnost,"РАЗДЕЛИТЬ",prichina is None)
 
 
-# Инициализация карты
+"""Инициализация карты: """
+
 hex_grid = create_hex_grid(HEX_GRID_WIDTH, HEX_GRID_HEIGHT, HEX_GRID_RADIUS)
 put_karty = os.path.join(data_dir, "karta_provintsiy.json")
 provintsii_kletok = {koord: "polya" for koord in hex_grid}
@@ -2243,9 +2239,7 @@ muravi = [
     Muravey("rabochiy", hex_grid[(4, 4)], "igrok", 12),
     Muravey("soldat", hex_grid[(6, 4)], "igrok", 12),
     Muravey("soldat", hex_grid[(10, 4)], "vrag", 9),
-    Muravey("bogomol", hex_grid[(12, 4)], "vrag", 1)
 ]
-# Если на своей карте кто-то залил точку появления паука водой, ищем ближайшую сухую клетку.
 zanyatye_pri_spavne = {(m.kletka.col, m.kletka.row) for m in muravi}
 kletka_pauka = min((k for koord, k in hex_grid.items()
                    if koord not in zanyatye_pri_spavne
@@ -2339,6 +2333,15 @@ def next_turn():
     for building in buildings:
         building.produce_per_turn()
     print(f"Новый ход: {turn_number}")
+
+
+#Главное меню работает отдельно от игрового цикла, пока игрок не нажмёт «Играть».
+main_menu = MainMenu(screen, MenuBackground(screen.get_size(),
+                                            None,
+                                            zagruzchik_atlasov),
+                     poluchit_shrift)
+running = main_menu.run() == "play"
+clock.tick(60)
 
 
 while running:
@@ -2438,7 +2441,7 @@ while running:
                             battle_tile.event = None
                             battle_tile.event_state = None
                         else:
-                            # Отряд игрока погиб на этой клетке — меняем '?' на красный '!'
+                            #Отряд игрока погиб на этой клетке - меняем '?' на красный '!'
                             battle_tile.event_state = "failed_battle"
                             if battle_tile.event is not None:
                                 battle_tile.event["count"] = max(1, battle_enemy.kolichestvo)
@@ -2470,7 +2473,7 @@ while running:
                         avtoboy = Avtoboy(battle_data["player_ant"], event_enemy)
             continue
 
-        # На время объединения не даём второму отряду уйти с клетки.
+        #На время объединения не даём второму отряду уйти с клетки:
         if slivanie is not None or okno_zakryto_v_etom_kadre:
             continue
 
@@ -2481,7 +2484,6 @@ while running:
                 okno_zakryto_v_etom_kadre = True
                 continue
 
-        # Клики в окнах не должны ещё и двигать отряд на карте.
         if okno_otryada is not None:
             if isinstance(okno_otryada, OknoRazdeleniya):
                 deystvie = okno_otryada.obrabotat(event)
@@ -2731,17 +2733,17 @@ while running:
                 )
 
     for tile in hex_grid.values():
-        tile.draw(setka_sloy, color=(200, 200, 200, 90), thick=3)
+        tile.draw(setka_sloy, color=(235, 228, 205, 42), thick=1)
 
     if hovered_tile is not None:
-        hovered_tile.draw(setka_sloy, color=(255, 255, 0, 180), thick=6)
+        hovered_tile.draw(setka_sloy, color=(238, 206, 112, 165), thick=3)
 
     screen.blit(setka_sloy, (0, 0))
 
     draw_tile_markers(screen)
 
     if selected_ant_house is not None:
-        pygame.draw.polygon(screen, (255, 220, 80), selected_ant_house.tile.table_points, 3)
+        pygame.draw.polygon(screen, (224, 192, 110), selected_ant_house.tile.table_points, 2)
 
     for building in buildings:
         building.draw(screen)
@@ -2782,8 +2784,8 @@ while running:
         screen.blit(preview_img, preview_rect)
 
         can_build = can_place_building(hovered_tile, building_type)
-        border_color = (50, 255, 50) if can_build else (255, 60, 60)
-        hovered_tile.draw(screen, color=border_color, thick=4)
+        border_color = (108, 198, 118) if can_build else (214, 82, 78)
+        hovered_tile.draw(screen, color=border_color, thick=2)
 
     unit_count = sum(unit.poluchit_yacheyki() for unit in muravi if unit.komanda == "igrok" and unit.zdorovie > 0)
     max_units = sum(building.unit_slots for building in buildings)
