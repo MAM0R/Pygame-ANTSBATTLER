@@ -4,6 +4,8 @@ import random
 import math
 import json
 import heapq #для работы с большой структурой данных
+from collections import deque
+from menu import MainMenu, MenuBackground
 
 
 
@@ -25,29 +27,15 @@ pygame.display.set_icon(game_icon)
 units_json = os.path.join(data_dir, "units.json")
 with open(units_json, "r", encoding="utf-8") as fail:
     units = json.load(fail)
-#ЕСЛИ units.json сломался!:
-units.setdefault("pauk", {
-    "nazvanie": "Паук",
-    "zdorovie": 240,
-    "prohodimost": 2,
-    "uron": 65,
-    "bronya": 15,
-    "odin": False,
-    "razmer_na_karte": 40,
-    "razmer_v_boyu": 36,
-    "animatsii": {
-        "pokoy": {"fps": 1},
-        "hodba": {"fps": 8},
-        "ataka": {"fps": 10},
-        "smert": {"fps": 1}
-    }
-})
+
 provintsii_json = os.path.join(data_dir, "tipy_provintsiy.json")
+
 if os.path.exists(provintsii_json):
     with open(provintsii_json, "r", encoding="utf-8") as fail:
         tipy_provintsiy = json.load(fail)
 else:
     #Если у кого-то нет файла с типами клеток:
+    # Если у кого-то нет файла с типами клеток, игра хотя бы запустится на стандартных настройках.
     tipy_provintsiy = {
         "polya": {"stoimost": 1},
         "les": {"stoimost": 2},
@@ -62,16 +50,30 @@ running = True #нужно чтобы игра сразу не закрывал�
 x = 1000
 clock = pygame.time.Clock()
 delta_time = 0.1
-font = pygame.font.SysFont("Russo One", 18) #Russo One для всего
+russo_one_path = os.path.join(main_dir, "Fonts", "RussoOne-Regular.ttf")
+if not os.path.isfile(russo_one_path):
+    russo_one_path = pygame.font.match_font("Russo One")
+
+
+def zagruzit_russo_one(razmer):
+    if russo_one_path:
+        return pygame.font.Font(russo_one_path, razmer)
+    return pygame.font.SysFont("Russo One", razmer)
+
+
+font = zagruzit_russo_one(18) #Russo One для всего
 font_smiles = pygame.font.SysFont("segoeuiemoji", 22) #для иконок и смайликов
-if pygame.font.match_font("Russo One") is None:
+font_count = pygame.font.SysFont("PT Sans", 10, bold=True)
+if pygame.font.match_font("PT Sans") is None:
+    print("Шрифт PT Sans не установлен, Pygame использует системную замену.")
+if russo_one_path is None:
     print("Шрифт Russo One не установлен, Pygame использует системную замену.")
 shrifty = {18: font}
 
 
 def poluchit_shrift(razmer):
     if razmer not in shrifty:
-        shrifty[razmer] = pygame.font.SysFont("Russo One", razmer)
+        shrifty[razmer] = zagruzit_russo_one(razmer)
     return shrifty[razmer]
 
 
@@ -86,6 +88,10 @@ HEX_GRID_RADIUS = r_hex
 
 """ДЕЛАЕМ ИЗ КАРТИНОК SURFACES:"""
 
+path_stonewall1 = os.path.join(textures_dir, "stoneWall1.png")
+stonewall1_img = pygame.image.load(path_stonewall1).convert_alpha()
+hitbox_stonewall1 = pygame.Rect(x, 30, stonewall1_img.get_width(), stonewall1_img.get_height())
+
 path_ant_house = os.path.join(textures_dir, "muraveynik.png")
 ant_house_img = pygame.image.load(path_ant_house).convert_alpha()
 
@@ -99,12 +105,28 @@ path_map_img = os.path.join(textures_dir, "MainMap.png")
 map_img = pygame.image.load(path_map_img).convert_alpha()
 scaled_map_img = pygame.transform.scale(map_img, screen.get_size())
 
+# Пол для автобоя загружаем один раз, текстуры не растягиваем.
+tekstury_pola_boya = {}
+for tip_pola, imya_faila in {
+    "les": "battler_les.png",
+    "pustynya": "battler_pustinya.png",
+    "polya": "battler_polya.png",
+    "gory": "battler_gori.png"
+}.items():
+    put_k_polu = os.path.join(textures_dir, imya_faila)
+    if os.path.isfile(put_k_polu):
+        tekstury_pola_boya[tip_pola] = pygame.image.load(put_k_polu).convert_alpha()
+    else:
+        print(f"Не найдена текстура пола автобоя: {imya_faila}")
 
-kadry_muravya = [
-    pygame.image.load(os.path.join(textures_dir, f"ant{i}.png")).convert_alpha()
-    for i in range(1, 4)
-]
 
+target = pygame.Rect(300, 0, 160, 280)
+collision = hitbox_stonewall1.colliderect(target)
+pygame.draw.rect(screen, (255 * collision, 255, 0), target)
+
+"""stonewall1_img = pygame.transform.scale(stonewall1_img,
+                                        (stonewall1_img.get_width() * 2,
+                                         stonewall1_img.get_height() * 2)) НЕОПТИМИЗИРОВАННЫЙ ВАРИАНТ ТОЛЬКО ЧТО-ТО ОЧЕНЬ ВАЖНОЕ"""
 
 
 """КЛАССЫ:"""
@@ -253,6 +275,7 @@ class HUD:
             hint = font.render("Кликни по Муравейнику, чтобы нанять войнов", True, (35, 45, 55))
             screen.blit(hint, hint.get_rect(center=self.select_rect.center))
         
+        #Прочее, текст и так далее:
         #Верхняя панель:
         turn_icon_rect = self.turn_icon.get_rect(midleft=(20, self.resources_rect.centery))
         screen.blit(self.turn_icon, turn_icon_rect)
@@ -306,6 +329,7 @@ class HUD:
         )
 
 
+#Resource Manager
 #Resource Manager:
 class ResourceManager:
     def __init__(self):
@@ -351,7 +375,7 @@ class ResourceManager:
             self.resources[resource] -= cost
 
 
-"""СТРОЕНИЯ:"""
+#СТРОЕНИЯ:
 #Муравейник:
 class Ant_House:
     def __init__(self, tile, resource_manager):
@@ -361,7 +385,7 @@ class Ant_House:
         self.rect = self.image.get_rect(center = tile.center)
         self.resource_manager = resource_manager
         self.resource_manager.apply_cost_to_resource(self.name)
-        self.unit_slots = 5
+        self.unit_slots = 60
         self.production = {"wood": 7, "stone": 7}
 
     def produce_per_turn(self):
@@ -371,17 +395,18 @@ class Ant_House:
     def draw(self, surface):
         surface.blit(self.image, self.rect)
 
+#Ферма:
 #Лесопилка:
 class WoodFarm:
     def __init__(self, tile, resource_manager):
-        self.tile = tile
-        self.image = scale_building_image(ferma_img, tile.radius * 1.8)
-        self.name = "Wood_Farm"
-        self.rect = self.image.get_rect(center = tile.center)
-        self.resource_manager = resource_manager
-        self.resource_manager.apply_cost_to_resource(self.name)
-        self.unit_slots = 0
-        self.production = {"wood": 5}
+            self.tile = tile
+            self.image = scale_building_image(ferma_img, tile.radius * 1.8)
+            self.name = "Wood_Farm"
+            self.rect = self.image.get_rect(center = tile.center)
+            self.resource_manager = resource_manager
+            self.resource_manager.apply_cost_to_resource(self.name)
+            self.unit_slots = 0
+            self.production = {"wood": 5}
 
     def produce_per_turn(self):
         for resource, amount in self.production.items():
@@ -393,14 +418,14 @@ class WoodFarm:
 #Каменоломня:
 class StoneFarm:
     def __init__(self, tile, resource_manager):
-        self.tile = tile
-        self.image = scale_building_image(stone_farm_img, tile.radius * 1.8)
-        self.name = "Stone_Farm"
-        self.rect = self.image.get_rect(center = tile.center)
-        self.resource_manager = resource_manager
-        self.resource_manager.apply_cost_to_resource(self.name)
-        self.unit_slots = 0
-        self.production = {"stone": 5}
+            self.tile = tile
+            self.image = scale_building_image(stone_farm_img, tile.radius * 1.8)
+            self.name = "Stone_Farm"
+            self.rect = self.image.get_rect(center = tile.center)
+            self.resource_manager = resource_manager
+            self.resource_manager.apply_cost_to_resource(self.name)
+            self.unit_slots = 0
+            self.production = {"stone": 5}
 
     def produce_per_turn(self):
         for resource, amount in self.production.items():
@@ -409,11 +434,47 @@ class StoneFarm:
     def draw(self, surface):
         surface.blit(self.image, self.rect)
 
+#Кнопка:
+class TestButton:
+    def __init__(self, text, x_pos, y_pos, b_enabled):
+        self.text = text
+        self.x_pos = x_pos
+        self.y_pos = y_pos
+        self.b_enabled = b_enabled
+        self.draw()
+
+    def draw(self):
+        button_text = font.render(self.text, True, "black")
+        button_rect = pygame.rect.Rect((self.x_pos, self.y_pos), (150, 25)) #2 скобки значения поставить самому
+        if self.b_enabled:
+            if self.check_if_clicked():
+                pygame.draw.rect(screen, "red", button_rect, 0, 5)
+            else:
+                pygame.draw.rect(screen, "blue", button_rect, 0, 5)
+        else:
+            pygame.draw.rect(screen, "black", button_rect, 0, 5)
+        pygame.draw.rect(screen, "black", button_rect, 2, 5)
+        screen.blit(button_text, (self.x_pos + 3, self.y_pos + 3))
+
+    def check_if_clicked(self):
+        mouse_pos = pygame.mouse.get_pos()
+        left_click = pygame.mouse.get_pressed()
+        button_rect = pygame.rect.Rect((self.x_pos, self.y_pos), (150, 25))
+        if left_click[0] and button_rect.collidepoint(mouse_pos) and self.b_enabled:
+            return True
+        else:
+            return False
+        
+
+
+
 #Кнопка для пропуска хода:
 class EndTurnButton:
     def __init__(self, text, x_pos, y_pos, width, height):
         self.rect = pygame.Rect(x_pos, y_pos, width, height)
         self.text = text
+        self.hover = 0.0
+        self.pressed = 0.0
     
     def is_hovered(self, mouse_pos):
         return self.rect.collidepoint(mouse_pos)
@@ -424,28 +485,14 @@ class EndTurnButton:
     def draw(self, surface, turn_number, b_enabled, has_unused_moves):
         mouse_pos = pygame.mouse.get_pos()
         hovered = self.is_hovered(mouse_pos)
-        
-        if not b_enabled:
-            bg_color = (95, 100, 105)
-            border_color = (60, 65, 70)
-            text_color = (180, 180, 180)
-            label = "Ожидание..."
-        elif not has_unused_moves:
-            bg_color = (85, 175, 95) if hovered else (65, 145, 75)
-            border_color = (230, 255, 220)
-            text_color = (255, 255, 255)
-            label = f"{self.text} ({turn_number})"
-        else:
-            bg_color = (235, 180, 75) if hovered else (205, 160, 55)
-            border_color = (255, 240, 180)
-            text_color = (25, 20, 10)
-            label = f"{self.text} ({turn_number})"
-        
-        pygame.draw.rect(surface, bg_color, self.rect, border_radius=8)
-        pygame.draw.rect(surface, border_color, self.rect, 2, border_radius=8)
+        self.hover += ((1.0 if hovered else 0.0) - self.hover) * min(1, delta_time * 12)
+        self.pressed = max(0, self.pressed - delta_time)
+        bg_color = tuple(round(a + (b - a) * self.hover)
+                         for a, b in zip((81, 125, 50), (101, 151, 66))) if b_enabled else (70, 76, 67)
+        rect = self.rect if self.pressed <= 0 else pygame.Rect(self.rect.x, self.rect.y + 2, self.rect.width, self.rect.height - 2)
+        pygame.draw.rect(surface, bg_color, rect)
+        nadpis_na_okne(surface, self.text, rect.center, 18, (241, 235, 221), 'center')
 
-        text_surf = font.render(label, True, text_color)
-        surface.blit(text_surf, text_surf.get_rect(center=self.rect.center))
 
 """ИВЕНТЫ!:"""
 #Случайные ивенты, их окно, логика и прочее:
@@ -458,14 +505,15 @@ class EventPopup:
         self.button_text = button_text
         self.battle_data = battle_data
         
-        self.panel = pygame.Rect(470, 225, 660, 420)
-        self.button_rect = pygame.Rect(self.panel.centerx - 140, self.panel.bottom - 76, 280, 50)
+        self.panel = pygame.Rect(410, 210, 780, 480)
+        self.button_rect = pygame.Rect(self.panel.left + 30, self.panel.bottom - 76, self.panel.width - 60, 50)
+        self.fade = 0.0
         self.dim_overlay = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
         self.dim_overlay.fill((8, 14, 22, 180))
         
         #Текст компоненты вынесены отдельно для более гармоничного вида:
         self.title_font = poluchit_shrift(26)
-        self.body_font = pygame.font.SysFont("PT Sans", 20)
+        self.body_font = poluchit_shrift(20)
         self.badge_font = poluchit_shrift(18)
         self.emoji_surface = pygame.font.SysFont("segoeuiemoji", 44).render(emoji, True, accent_color)
     
@@ -494,42 +542,31 @@ class EventPopup:
     
     
     def draw(self, surface):
+        self.fade = min(1.0, self.fade + delta_time / .18)
+        self.dim_overlay.set_alpha(round(255 * self.fade))
         surface.blit(self.dim_overlay, (0, 0))
-        pygame.draw.rect(surface, (26, 33, 42), self.panel, border_radius=12)
-        pygame.draw.rect(surface, self.accent_color, self.panel, 3, border_radius=12)
-        
-        header_rect = pygame.Rect(self.panel.left + 3, self.panel.top + 3, self.panel.width - 6, 86)
-        pygame.draw.rect(surface, (36, 45, 56), header_rect, border_top_left_radius=9, border_top_right_radius=9)
-        
+        pygame.draw.rect(surface, (32, 59, 39), self.panel)
         emoji_bg = pygame.Rect(self.panel.left + 26, self.panel.top + 18, 56, 56)
-        pygame.draw.rect(surface, (22, 28, 36), emoji_bg, border_radius=10)
-        surface.blit(self.emoji_surface, self.emoji_surface.get_rect(center = emoji_bg.center))
-        
-        title_surf = self.title_font.render(self.title, True, (245, 245, 245))
+        pygame.draw.rect(surface, (52, 83, 42), emoji_bg)
+        surface.blit(self.emoji_surface, self.emoji_surface.get_rect(center=emoji_bg.center))
+        title_surf = self.title_font.render(self.title, True, self.accent_color)
         surface.blit(title_surf, title_surf.get_rect(midleft=(emoji_bg.right + 18, emoji_bg.centery)))
-        
-        y_pos = self.panel.top + 122
+        y_pos = self.panel.top + 100
         for line in self.wrap_text(self.description, self.panel.width - 70):
-            line_surf = self.body_font.render(line, True, (218, 224, 230))
+            line_surf = self.body_font.render(line, True, (241, 235, 221))
             surface.blit(line_surf, line_surf.get_rect(midtop=(self.panel.centerx, y_pos)))
-            y_pos += 30
-            
-        badge_box = pygame.Rect(self.panel.left + 45, self.panel.bottom - 148, self.panel.width - 90, 48)
-        pygame.draw.rect(surface, (34, 43, 54), badge_box, border_radius=10)
-        pygame.draw.rect(surface, self.accent_color, badge_box, 1, border_radius=10)
-        badge_surf = self.badge_font.render(self.badge_text, True, self.accent_color)
-        surface.blit(badge_surf, badge_surf.get_rect(center = badge_box.center))
-        
+            y_pos += 28
+        badge_box = pygame.Rect(self.panel.left + 30, self.panel.bottom - 148, self.panel.width - 60, 48)
+        pygame.draw.rect(surface, (48, 75, 49), badge_box)
+        badge_font = self.badge_font
+        if badge_font.size(self.badge_text)[0] > badge_box.width - 16:
+            badge_font = poluchit_shrift(14)
+        badge_surf = badge_font.render(self.badge_text, True, self.accent_color)
+        surface.blit(badge_surf, badge_surf.get_rect(center=badge_box.center))
         hovered = self.button_rect.collidepoint(pygame.mouse.get_pos())
-        btn_color = ( #ЦВЕТ КНОПКИ
-            min(255, self.accent_color[0] + 25),
-            min(255, self.accent_color[1] + 25),
-            min(255, self.accent_color[2] + 25),
-        ) if hovered else self.accent_color
-        
-        pygame.draw.rect(surface, btn_color, self.button_rect, border_radius=8)
-        pygame.draw.rect(surface, (240, 240, 240), self.button_rect, 2, border_radius=8)
-        btn_label = font.render(self.button_text, True, (18, 22, 26))
+        btn_color = (101, 151, 66) if hovered else (81, 125, 50) #ЦВЕТ КНОПКИ
+        pygame.draw.rect(surface, btn_color, self.button_rect)
+        btn_label = font.render(self.button_text, True, (241, 235, 221))
         surface.blit(btn_label, btn_label.get_rect(center=self.button_rect.center))
 
 
@@ -556,20 +593,11 @@ class ZagruzchikAtlasov:
 
     def podgotovit_tip(self, tip):
         dannye = units[tip]
-        if not dannye.get("tekstura"):
-            # Это пока затычка для богомола, отдельного атласа для него нет.
-            kadr = kadry_muravya[0]
-            trup = pygame.transform.rotate(kadr, 180)
-            trup.fill((135, 135, 135, 255), special_flags=pygame.BLEND_RGBA_MULT)
-            telo = {"pokoy": [kadr], "hodba": list(kadry_muravya),
-                    "ataka": [kadr], "smert": [trup]}
-            w, h = kadr.get_size()
-        else:
-            w, h = dannye["shirina_kadra"], dannye["vysota_kadra"]
-            atlas = self.zagruzit_atlas(dannye["tekstura"], w, h)
-            telo = {imya: [self.poluchit_kadr(atlas, w, h, koord)
-                           for koord in opisanie["kadry"]]
-                    for imya, opisanie in dannye["animatsii"].items()}
+        w, h = dannye["shirina_kadra"], dannye["vysota_kadra"]
+        atlas = self.zagruzit_atlas(dannye["tekstura"], w, h)
+        telo = {imya: [self.poluchit_kadr(atlas, w, h, koord)
+                       for koord in opisanie["kadry"]]
+                for imya, opisanie in dannye["animatsii"].items()}
 
         # Центр у всех кадров один, в том числе у тела с усиками.
         razmer = (w * 2, h * 2)
@@ -673,11 +701,15 @@ class Boets:
         self.skorost = units[self.tip].get("skorost_boya", 115) * random.uniform(.85, 1.15)
         self.animatsiya = Animatsiya(self.tip, self.komanda, razmer)
         self.zhiv = True
+        self.max_zdorovie = self.zdorovie = units[self.tip]["zdorovie"]
+        self.uron = units[self.tip]["uron"]
+        self.bronya = units[self.tip].get("bronya", 0)
         self.tsel = None
         self.tsel_udara = None
         self.vremya_ataki = 0.0
         self.pauza = random.uniform(0, .25)
         self.udary = 0
+        self.vremya_pokaza_hp = 0.0
         self.mesto_ataki = None
         self.perevybor = 0.0
         self.zaderzhka = random.uniform(0, .3)
@@ -688,6 +720,7 @@ class Boets:
 
     def umeret(self):
         self.zhiv = False
+        self.zdorovie = 0
         self.tsel = None
         self.tsel_udara = None
         self.animatsiya.ustanovit("smert")
@@ -695,33 +728,30 @@ class Boets:
     def narisovat(self, poverhnost):
         kartinka = self.animatsiya.kartinka(self.ugol)
         pozitsiya = self.pozitsiya
-        if not units[self.tip].get("tekstura") and self.tsel_udara is not None and self.zhiv:
-            # У старого спрайта удара нет, поэтому немного двигаем тело вперёд.
-            vektor = self.tsel_udara.pozitsiya - pozitsiya
-            if vektor.length_squared() > .01:
-                pozitsiya = pozitsiya + vektor.normalize() * 5 * math.sin(math.pi * min(1, self.vremya_ataki / self.animatsiya.dlitelnost_ataki()))
         poverhnost.blit(kartinka, kartinka.get_rect(center=(round(pozitsiya.x), round(pozitsiya.y))))
 
 
 class BoevoyII:
-    def __init__(self, arena, levyy, pravyy, itog):
+    def __init__(self, arena, levyy, pravyy):
         self.arena = arena
         self.boitsy = []
         self.po_storonam = [[], []]
-        self.ostalos = [itog["do_levogo"], itog["do_pravogo"]]
-        self.vyzhivet = [itog["posle_levogo"], itog["posle_pravogo"]]
-        self.poteri = [self.ostalos[i] - self.vyzhivet[i] for i in range(2)]
+        self.ostalos = [levyy.kolichestvo, pravyy.kolichestvo]
         self.ostalos_po_tipam = [dict(levyy.sostav), dict(pravyy.sostav)]
-        self.vyzhivet_po_tipam = [dict(itog["sostav_levogo"]), dict(itog["sostav_pravogo"])]
         self.vremya = 0.0
-        self.nachalo_udarov = None
+        self.posledniy_uron = 0.0
+        self.konets_boya = None
         self.zakonchen = False
-        self.avarijno = False
+        self.prervan = False
         self.shag = 1/60
         self.nakopleno = 0.0
+        self.effekty = VizualnyeEffekty()
+        self.cvet_pyli = (185, 173, 129)
+        self.sled_pyli = 0.0
         for storona, gruppa in enumerate((levyy, pravyy)):
             self.sozdat_boytsov(gruppa, storona)
 
+    #Муравьи выход на арену:
     def sozdat_boytsov(self, gruppa, storona):
         n = gruppa.kolichestvo
         stolbtsy = max(1, math.ceil(math.sqrt(n * 1.45)))
@@ -729,7 +759,7 @@ class BoevoyII:
         interval = min((self.arena.width * .37 - 18) / stolbtsy, (self.arena.height - 24) / ryady)
         tipy = [tip for tip, kol in gruppa.sostav.items() for _ in range(kol)]
         random.shuffle(tipy)
-        max_razmer = max(units[tip].get("razmer_v_boyu", 36) for tip in tipy)
+        max_razmer = max(units[tip]["razmer_v_boyu"] for tip in tipy)
         razmer = min(max_razmer, max(5, int(interval * .92)))
         shag = min(interval, max(razmer * .95, 17))
         x = self.arena.left + 18 if storona == 0 else self.arena.right - 18
@@ -738,7 +768,7 @@ class BoevoyII:
             col, row = i % stolbtsy, i // stolbtsy
             p = (x + znak * (razmer/2 + col * shag), self.arena.centery + (row-(ryady-1)/2)*shag)
             tip = tipy[i]
-            razmer_boytsa = max(5, round(units[tip].get("razmer_v_boyu", 36) * razmer / max_razmer))
+            razmer_boytsa = max(5, round(units[tip]["razmer_v_boyu"] * razmer / max_razmer))
             boets = Boets(gruppa, p, razmer_boytsa, len(self.boitsy), storona, tip)
             self.boitsy.append(boets)
             self.po_storonam[storona].append(boets)
@@ -752,9 +782,7 @@ class BoevoyII:
     def nayti_tsel(self, boets, vragi, nagruzka):
         if not vragi:
             return None
-        # Если у цели уже закончился лимит потерь, ищем другую, пока есть кого добивать.
-        dostupnye = [vrag for vrag in vragi if self.mozhno_ubit(vrag)] or vragi
-        return min(dostupnye, key=lambda vrag: boets.pozitsiya.distance_to(vrag.pozitsiya) + nagruzka.get(vrag, 0) * boets.radius * 1.4)
+        return min(vragi, key=lambda vrag: boets.pozitsiya.distance_to(vrag.pozitsiya) + nagruzka.get(vrag, 0) * boets.radius * 1.4)
 
     def nayti_mesto_ataki(self, boets, tsel, zanyatye):
         radius = boets.radius + tsel.radius + boets.dalnost * .65
@@ -808,49 +836,48 @@ class BoevoyII:
                                 self.ogranichit(drugoy)
 
     def udar(self, boets, tsel):
-        if not tsel.zhiv or not boets.zhiv:
-            return
+        if not tsel.zhiv or not boets.zhiv or boets.storona == tsel.storona:
+            return 0
         if boets.pozitsiya.distance_to(tsel.pozitsiya) > boets.radius+tsel.radius+boets.dalnost+4:
-            return
-        if self.nachalo_udarov is None:
-            self.nachalo_udarov = self.vremya
-        tsel.animatsiya.vspyshka = .09
-        tsel.udary += 1
-        storona = tsel.storona
-        if not self.mozhno_ubit(tsel):
-            return
-        # Потери считаются заранее, удар только решает, кто именно погибнет.
-        proshlo = self.vremya - self.nachalo_udarov
-        razresheno = min(self.poteri[storona], 1+int(self.poteri[storona]*proshlo/5.5))
-        if self.poteri[storona] - (self.ostalos[storona]-self.vyzhivet[storona]) >= razresheno:
-            return
-        drugaya = 1-storona
-        # Не даём одной армии исчезнуть слишком рано, иначе последнему бойцу
-        # придётся в одиночку добивать десятки противников.
-        if self.poteri[drugaya]:
-            pogiblo = self.poteri[storona] - (self.ostalos[storona]-self.vyzhivet[storona])
-            pogiblo_drugih = self.poteri[drugaya] - (self.ostalos[drugaya]-self.vyzhivet[drugaya])
-            dopusk = max(.06, 1/self.poteri[storona], 1/self.poteri[drugaya])
-            if (pogiblo+1)/self.poteri[storona] > pogiblo_drugih/self.poteri[drugaya]+dopusk+.00001:
-                return
-        if self.ostalos[storona] == 1 and self.ostalos[drugaya] > self.vyzhivet[drugaya]:
-            if self.vyzhivet == [0,0] and self.ostalos == [1,1]:
-                self.ubit(boets)
-            else:
-                return
-        self.ubit(tsel)
+            return 0
+        bronya = max(0, min(100, tsel.bronya))
+        return max(0, boets.uron * (1 - bronya / 100))
 
-    def mozhno_ubit(self, boets):
-        return (boets.zhiv and self.ostalos_po_tipam[boets.storona][boets.tip]
-                > self.vyzhivet_po_tipam[boets.storona].get(boets.tip, 0))
+    def primenit_udary(self, udary):
+        # Сначала собираем все удары за этот шаг, чтобы порядок бойцов в списке
+        # не давал одной стороне преимущество при одновременной атаке.
+        uron_po_tselyam = {}
+        for boets, tsel in udary:
+            uron = self.udar(boets, tsel)
+            if uron > 0:
+                uron_po_tselyam[tsel] = uron_po_tselyam.get(tsel, 0) + uron
+                tsel.udary += 1
+        for tsel, uron in uron_po_tselyam.items():
+            tsel.animatsiya.vspyshka = .09
+            tsel.vremya_pokaza_hp = self.vremya+.55
+            # Цифры урона ограничиваем, чтобы на большой арене было видно сам бой.
+            if sum(len(ch) == 5 for ch in self.effekty.chastitsy) < 8:
+                self.effekty.udar(tsel.pozitsiya, uron)
+                self.effekty.pyl(tsel.pozitsiya, self.cvet_pyli, 2)
+            tsel.zdorovie = max(0, tsel.zdorovie - uron)
+            self.posledniy_uron = self.vremya
+            if tsel.zdorovie <= 0:
+                self.ubit(tsel)
 
     def ubit(self, boets):
-        if self.mozhno_ubit(boets):
+        if boets.zhiv:
             boets.umeret()
             self.ostalos[boets.storona] -= 1
             self.ostalos_po_tipam[boets.storona][boets.tip] -= 1
 
     def obnovit(self, delta_time):
+        self.effekty.obnovit(delta_time)
+        self.sled_pyli += delta_time
+        if self.sled_pyli >= .16 and self.konets_boya is None:
+            self.sled_pyli = 0.0
+            for b in self.boitsy:
+                if b.zhiv and b.animatsiya.sostoyanie == "hodba" and self.effekty.random.random() < .18:
+                    self.effekty.pyl(b.pozitsiya, self.cvet_pyli, 1)
         self.nakopleno += delta_time
         while self.nakopleno >= self.shag and not self.zakonchen:
             self.nakopleno -= self.shag
@@ -858,6 +885,10 @@ class BoevoyII:
 
     def shag_boya(self, dt):
         self.vremya += dt
+        if self.konets_boya is not None:
+            if self.vremya - self.konets_boya >= .65:
+                self.zakonchen = True
+            return
         zhivye = [b for b in self.boitsy if b.zhiv]
         vragi = [[b for b in spisok if b.zhiv] for spisok in self.po_storonam]
         nagruzka = {}
@@ -871,11 +902,12 @@ class BoevoyII:
                     p = b.tsel.pozitsiya+pygame.math.Vector2(math.cos(a),math.sin(a))*r
                     mesta.setdefault(b.tsel, []).append((b,p))
         udary = []
+        zastoy = self.vremya - self.posledniy_uron
         for b in zhivye:
             b.animatsiya.obnovit(dt)
             b.pauza = max(0, b.pauza-dt)
             b.perevybor -= dt
-            if self.vremya < b.zaderzhka or self.ostalos == self.vyzhivet:
+            if self.vremya < b.zaderzhka:
                 b.animatsiya.ustanovit("pokoy")
                 continue
             if b.tsel_udara is not None:
@@ -889,8 +921,7 @@ class BoevoyII:
                     b.pauza = random.uniform(.12,.35)
                     b.animatsiya.ustanovit("pokoy")
                 continue
-            if (b.tsel is None or not b.tsel.zhiv
-                    or (not self.mozhno_ubit(b.tsel) and any(self.mozhno_ubit(v) for v in vragi[1-b.storona]))):
+            if b.tsel is None or not b.tsel.zhiv or (zastoy > 5 and b.perevybor <= 0):
                 b.tsel = self.nayti_tsel(b, vragi[1-b.storona], nagruzka)
                 b.mesto_ataki = None
                 if b.tsel is not None:
@@ -920,30 +951,43 @@ class BoevoyII:
             r = b.radius+tsel.radius+b.dalnost*.65
             mesto = tsel.pozitsiya+pygame.math.Vector2(math.cos(a),math.sin(a))*r
             napravlenie = mesto-b.pozitsiya
+            # Если вокруг цели никак не получается занять место, идём к ней напрямую.
+            if zastoy > 8:
+                napravlenie = vektor
             if napravlenie.length_squared() > .001:
                 b.povernut(napravlenie)
                 b.pozitsiya += napravlenie.normalize()*min(b.skorost*dt, napravlenie.length())
                 self.ogranichit(b)
                 b.animatsiya.ustanovit("hodba")
         self.rastolknut(zhivye)
-        for b, tsel in udary:
-            self.udar(b, tsel)
-        if self.ostalos == self.vyzhivet and self.vremya >= 8:
-            self.zakonchen = True
-        elif self.vremya >= 18:
-            # Если бойцы застряли, результат всё равно должен совпасть с расчётом.
-            self.avarijno = self.ostalos != self.vyzhivet
-            for i in range(2):
-                kandidaty = sorted((b for b in self.po_storonam[i] if b.zhiv), key=lambda b: -b.udary)
-                for b in kandidaty:
-                    self.ubit(b)
-            self.zakonchen = True
+        self.primenit_udary(udary)
+        if 0 in self.ostalos:
+            self.konets_boya = self.vremya
+        elif self.vremya - self.posledniy_uron >= 30:
+            # Если никто не может нанести урон, не убиваем бойцов искусственно.
+            self.prervan = True
+            self.konets_boya = self.vremya
+        if self.konets_boya is not None:
+            for b in self.boitsy:
+                if b.zhiv:
+                    b.tsel = b.tsel_udara = None
+                    b.animatsiya.ustanovit("pokoy")
 
     def narisovat(self, poverhnost):
         staryy_clip = poverhnost.get_clip()
         poverhnost.set_clip(self.arena)
+        for b in self.boitsy:
+            if b.zhiv:
+                narisovat_ten(poverhnost, tuple(b.pozitsiya), b.radius*3.1, b.radius*2.2)
         for b in sorted(self.boitsy, key=lambda b: (b.zhiv,b.pozitsiya.y)):
             b.narisovat(poverhnost)
+        self.effekty.narisovat(poverhnost)
+        for b in self.boitsy:
+            if b.zhiv and 0 < b.zdorovie < b.max_zdorovie and b.vremya_pokaza_hp > self.vremya:
+                w = max(10, round(b.radius*2.6))
+                x, y = round(b.pozitsiya.x)-w//2, round(b.pozitsiya.y-b.radius*1.9)-6
+                pygame.draw.rect(poverhnost,(28,33,27),(x,y,w,4))
+                pygame.draw.rect(poverhnost,(155,211,113),(x,y,round(w*b.zdorovie/b.max_zdorovie),4))
         poverhnost.set_clip(staryy_clip)
 
 
@@ -972,7 +1016,7 @@ class Muravey:
         pelmeshki.bronya = dannye.get("bronya", 0)
         pelmeshki.kletka = kletka
         pelmeshki.komanda = komanda
-        #Муравьи выход на арену:
+        # Сколько тут бойцов — столько и выйдет на арену.
         pelmeshki.kolichestvo = 1 if pelmeshki.odin else max(1, int(
             kolichestvo if kolichestvo is not None else dannye.get("kolichestvo", 10)
         ))
@@ -993,7 +1037,8 @@ class Muravey:
         if not pelmeshki.sostav:
             pelmeshki.zdorovie = 0
             return
-        pelmeshki.tip = next(iter(pelmeshki.sostav))
+        # На карте показываем самого сильного бойца, а не два мелких спрайта.
+        pelmeshki.tip = max(pelmeshki.sostav, key=lambda tip: sila_sostava({tip: 1}))
         dannye = units[pelmeshki.tip]
         pelmeshki.odin = dannye.get("odin", False)
         pelmeshki.nazvanie = "Смешанный отряд" if len(pelmeshki.sostav) > 1 else dannye["nazvanie"]
@@ -1002,13 +1047,9 @@ class Muravey:
         pelmeshki.bronya = dannye.get("bronya", 0)
         pelmeshki.prohodimost = min(units[tip]["prohodimost"] for tip in pelmeshki.sostav)
         pelmeshki.ostalos_hodov = min(pelmeshki.ostalos_hodov, pelmeshki.prohodimost)
-        # На карте у смешанного отряда два маленьких спрайта вместо одного большого.
-        pelmeshki.animatsii = {
-            tip: Animatsiya(tip, pelmeshki.komanda,
-                           round(units[tip].get("razmer_na_karte", 40) * (.65 if len(pelmeshki.sostav) > 1 else 1)))
-            for tip in pelmeshki.sostav
-        }
-        pelmeshki.animatsiya = pelmeshki.animatsii[pelmeshki.tip]
+        pelmeshki.animatsiya = Animatsiya(pelmeshki.tip, pelmeshki.komanda,
+                                        units[pelmeshki.tip]["razmer_na_karte"])
+        pelmeshki.animatsii = {pelmeshki.tip: pelmeshki.animatsiya}
 
     def poluchit_silu(pelmeshki):
         return sila_sostava(pelmeshki.sostav)
@@ -1020,20 +1061,41 @@ class Muravey:
         if pelmeshki.zdorovie <= 0:
             return
 
-        mesto = None
-        for i, animatsiya in enumerate(pelmeshki.animatsii.values()):
-            kartinka = animatsiya.kartinka(pelmeshki.ugol)
-            sdvig = (i-(len(pelmeshki.animatsii)-1)/2)*21
-            rect = kartinka.get_rect(center=(round(pelmeshki.pozitsiya.x+sdvig),
-                                              round(pelmeshki.pozitsiya.y)))
-            poverhnost.blit(kartinka, rect)
-            mesto = rect if mesto is None else mesto.union(rect)
+        kartinka = pelmeshki.animatsiya.kartinka(pelmeshki.ugol)
+        mesto = kartinka.get_rect(center=(round(pelmeshki.pozitsiya.x), round(pelmeshki.pozitsiya.y)))
+        poverhnost.blit(kartinka, mesto)
 
-        chislo = shrift_kolichestva.render(str(pelmeshki.kolichestvo), True, (255, 255, 255))
-        podlozhka = chislo.get_rect(bottomright=(mesto.right + 4, mesto.bottom + 5))
-        podlozhka.inflate_ip(7, 4)
-        pygame.draw.rect(poverhnost, (18, 30, 35), podlozhka)
-        poverhnost.blit(chislo, chislo.get_rect(center=podlozhka.center))
+        chislo = font_count.render(str(pelmeshki.kolichestvo), True, (255, 255, 255))
+
+        # Плашку делаем поменьше и цепляем справа от спрайта,
+        # чтобы большие числа не залезали на самого муравья.
+        vnutr_otstup_x = 4
+        vnutr_otstup_y = 2
+        shirina_podlozhki = chislo.get_width() + vnutr_otstup_x * 2
+        vysota_podlozhki = chislo.get_height() + vnutr_otstup_y * 2
+        levyy_kray = mesto.right + 1
+        verhniy_kray = mesto.bottom - vysota_podlozhki + 1
+        srez = 3
+
+        podlozhka_sloy = pygame.Surface((shirina_podlozhki, vysota_podlozhki), pygame.SRCALPHA)
+        pygame.draw.polygon(
+            podlozhka_sloy,
+            (45, 50, 56, 170),
+            [(srez, 0),
+             (shirina_podlozhki - srez, 0),
+             (shirina_podlozhki, srez),
+             (shirina_podlozhki, vysota_podlozhki - srez),
+             (shirina_podlozhki - srez, vysota_podlozhki),
+             (srez, vysota_podlozhki),
+             (0, vysota_podlozhki - srez),
+             (0, srez)]
+        )
+        poverhnost.blit(podlozhka_sloy, (levyy_kray, verhniy_kray))
+        poverhnost.blit(
+            chislo,
+            chislo.get_rect(center=(levyy_kray + shirina_podlozhki / 2,
+                                    verhniy_kray + vysota_podlozhki / 2))
+        )
 
         if pelmeshki.odin:
             # Подпись нужна, чтобы одиночных врагов было проще различать на карте.
@@ -1063,7 +1125,6 @@ class Muravey:
         return True
 
     def obnovit(pelmeshki, delta_time):
-        global pending_event_trigger #нужно для системы ивентов
         if pelmeshki.zdorovie <= 0:
             return
         for animatsiya in pelmeshki.animatsii.values():
@@ -1091,14 +1152,23 @@ class Muravey:
             tip = provintsii_kletok[koord]
             if tipy_provintsiy[tip].get("smertelna", False):
                 pelmeshki.umeret()
-            elif pelmeshki.komanda == "igrok" and sleduyushchaya.event: #как же удобно работать с Гошеным кодом :)
+            elif pelmeshki.komanda == "igrok" and sleduyushchaya.event is not None: #как же удобно работать с Гошеным кодом :)
+
+
+                vozvrat = sum((tipy_provintsiy[provintsii_kletok[(k.col, k.row)]]["stoimost"] or 0)
+                              for k in pelmeshki.marshrut)
+                pelmeshki.ostalos_hodov = min(pelmeshki.prohodimost, pelmeshki.ostalos_hodov + vozvrat)
                 pelmeshki.marshrut.clear()
-                pending_event_trigger = (pelmeshki, sleduyushchaya)
+                if pelmeshki.vrag_dlya_boya is not None:
+                    pelmeshki.atakoval_v_etom_hodu = False
+                pelmeshki.vrag_dlya_boya = None
+                pending_event_triggers.append((pelmeshki, sleduyushchaya)) #нужно для системы ивентов
         elif rasstoyanie > 0:
             pelmeshki.pozitsiya += napravlenie.normalize() * shag
 
     def umeret(pelmeshki):
         #Логика гибеля:
+        # Сюда сводим любую гибель: и утопление, и проигрыш целой группы.
         if pelmeshki.zdorovie <= 0:
             return
         pelmeshki.zdorovie = 0
@@ -1128,64 +1198,34 @@ def nanesti_uron(atakuyushiy, zashchitnik):
     return fakt_uron
 
 
-def rasschitat_boy(levyy, pravyy):
-    # Победителя считаем заранее, ИИ только показывает как прошёл бой.
-    sila_levogo = levyy.poluchit_silu()
-    sila_pravogo = pravyy.poluchit_silu()
-    kol_levogo = levyy.kolichestvo
-    kol_pravogo = pravyy.kolichestvo
-
-    if sila_levogo == sila_pravogo:
-        vyzhilo_levogo = 0
-        vyzhilo_pravogo = 0
+def rasschitat_itog_boya(ii, do_boya):
+    # Считаем тех, кто действительно выжил, а не назначаем потери заранее.
+    sostavy = [{}, {}]
+    for boets in ii.boitsy:
+        if boets.zhiv:
+            sostav = sostavy[boets.storona]
+            sostav[boets.tip] = sostav.get(boets.tip, 0) + 1
+    levyy, pravyy = map(lambda sostav: sum(sostav.values()), sostavy)
+    if levyy and not pravyy:
+        pobeditel = "igrok"
+    elif pravyy and not levyy:
+        pobeditel = "vrag"
+    elif not levyy and not pravyy:
         pobeditel = "nichya"
     else:
-        pobeditel = "igrok" if sila_levogo > sila_pravogo else "vrag"
-        pobedivshih = levyy if pobeditel == "igrok" else pravyy
-        sila_pobedy = max(sila_levogo, sila_pravogo)
-        sila_porazheniya = min(sila_levogo, sila_pravogo)
-
-        # Чем ближе силы отрядов, тем больше потери. У победителя останется хотя бы один живой.
-        dolya_poter = (sila_porazheniya / sila_pobedy) ** 1.5
-        umerlo_u_pobeditelya = min(
-            pobedivshih.kolichestvo - 1,
-            round(pobedivshih.kolichestvo * dolya_poter)
-        )
-        vyzhilo = pobedivshih.kolichestvo - umerlo_u_pobeditelya
-        vyzhilo_levogo = vyzhilo if pobeditel == "igrok" else 0
-        vyzhilo_pravogo = vyzhilo if pobeditel == "vrag" else 0
-
-    return {
-        "sila_levogo": sila_levogo,
-        "sila_pravogo": sila_pravogo,
-        "do_levogo": kol_levogo,
-        "do_pravogo": kol_pravogo,
-        "posle_levogo": vyzhilo_levogo,
-        "posle_pravogo": vyzhilo_pravogo,
-        "pobeditel": pobeditel,
-        "sostav_levogo": raspredelit_poteri(levyy.sostav, vyzhilo_levogo),
-        "sostav_pravogo": raspredelit_poteri(pravyy.sostav, vyzhilo_pravogo)
-    }
-
-
-def raspredelit_poteri(sostav, vyzhilo):
-    # Округляем потери так, чтобы лишний муравей не появился из-за дробных чисел.
-    vsego = sum(sostav.values())
-    if not vsego:
-        return {}
-    pogiblo = vsego-vyzhilo
-    poteri = {tip: kol*pogiblo//vsego for tip, kol in sostav.items()}
-    ostatok = pogiblo-sum(poteri.values())
-    for tip in sorted(sostav, key=lambda tip: -(sostav[tip]*pogiblo % vsego))[:ostatok]:
-        poteri[tip] += 1
-    return {tip: kol-poteri[tip] for tip, kol in sostav.items() if kol > poteri[tip]}
+        pobeditel = "prervan"
+    return {"do_levogo": do_boya[0], "do_pravogo": do_boya[1],
+            "posle_levogo": levyy, "posle_pravogo": pravyy,
+            "pobeditel": pobeditel, "sostav_levogo": sostavy[0],
+            "sostav_pravogo": sostavy[1]}
 
 
 class Avtoboy:
     def __init__(self, levyy, pravyy):
         self.levyy = levyy
         self.pravyy = pravyy
-        self.itog = rasschitat_boy(levyy, pravyy)
+        self.itog = None
+        self.do_boya = (levyy.kolichestvo, pravyy.kolichestvo)
         self.vremya = 0.0
         self.stadiya = "bitva"
 
@@ -1203,9 +1243,30 @@ class Avtoboy:
         koord_zashchitnika = (pravyy.kletka.col, pravyy.kletka.row)
         tip_polya_boya = provintsii_kletok.get(koord_zashchitnika, "polya")
         self.palette = self.poluchit_paltru_boya(tip_polya_boya)
+        self.pol_boya = self.sozdat_pol_boya(tip_polya_boya)
 
         # На больших отрядах ужимаем отдельные спрайты, но не подменяем армию одной картинкой.
-        self.ii = BoevoyII(self.arena, levyy, pravyy, self.itog)
+        self.ii = BoevoyII(self.arena, levyy, pravyy)
+        self.ii.cvet_pyli = {"les":(125,110,78), "polya":(168,159,107),
+                            "gory":(157,157,150), "pustynya":(218,184,121),
+                            "plyazh":(221,203,152), "voda":(110,170,205)}.get(tip_polya_boya,(168,159,107))
+        self.polosy = [1.0, 1.0]
+        self.poyavlenie = 0.0
+        self.poyavlenie_itoga = 0.0
+
+    def sozdat_pol_boya(self, tip):
+        pol = pygame.Surface(self.arena.size)
+        pol.fill(self.palette["arena"])
+        # Для пляжа пока используем песок пустыни, для воды оставляем старый фон.
+        tekstura = tekstury_pola_boya.get("pustynya" if tip == "plyazh" else tip)
+        if tekstura is None:
+            return pol
+
+        # Кладём текстуры рядом в исходном размере, лишнее за краями само обрежется.
+        for y in range(0, self.arena.height, tekstura.get_height()):
+            for x in range(0, self.arena.width, tekstura.get_width()):
+                pol.blit(tekstura, (x, y))
+        return pol
 
     def poluchit_paltru_boya(self, tip):
         palitry = {
@@ -1309,15 +1370,24 @@ class Avtoboy:
         return palitry.get(tip, palitry["polya"])
 
     def obnovit(self, delta_time):
+        self.poyavlenie = min(1.0,self.poyavlenie+delta_time/.2)
         if self.stadiya != "bitva":
+            self.poyavlenie_itoga = min(1.0,self.poyavlenie_itoga+delta_time/.18)
             return
         self.ii.obnovit(delta_time)
+        for i in range(2):
+            dolya = self.ii.ostalos[i]/max(1,self.do_boya[i])
+            self.polosy[i] += (dolya-self.polosy[i])*min(1,delta_time*10)
         self.vremya = self.ii.vremya
         if self.ii.zakonchen:
+            self.itog = rasschitat_itog_boya(self.ii, self.do_boya)
             self.stadiya = "rezultat"
 
     def zavershit(self):
         #Только после экрана результата перенос потери на карту:
+        # Только после экрана результата переносим потери на карту.
+        if self.itog is None:
+            return
         for gruppa, kluch in (
             (self.levyy, "sostav_levogo"),
             (self.pravyy, "sostav_pravogo")
@@ -1362,7 +1432,7 @@ class Avtoboy:
             (self.panel.left + 48, self.panel.top + 146), "midleft"
         )
         kolichestvo_vraga = (
-            f"{self.ii.ostalos[1]} из {self.itog['do_pravogo']}"
+            f"{self.ii.ostalos[1]} из 1"
             if self.pravyy.odin
             else f"{self.ii.ostalos[1]} муравьёв"
         )
@@ -1372,16 +1442,25 @@ class Avtoboy:
             (self.panel.right - 48, self.panel.top + 146), "midright"
         )
 
-        pygame.draw.rect(poverhnost, self.palette["arena"], self.arena)
+        # Полоски показывают живых бойцов, а не заранее рассчитанный результат.
+        for i in range(2):
+            w = 390
+            x = self.arena.left+6 if i == 0 else self.arena.right-w-6
+            y = self.arena.top-13
+            pygame.draw.rect(poverhnost,(20,26,21),(x,y,w,8))
+            zapolnenie = round(w*self.polosy[i])
+            pygame.draw.rect(poverhnost,cveta_koloniy["igrok" if i==0 else "vrag"],
+                             (x if i==0 else x+w-zapolnenie,y,zapolnenie,8))
+        poverhnost.blit(self.pol_boya, self.arena.topleft)
         self.ii.narisovat(poverhnost)
 
         self.tekst(
-            poverhnost, f"Сила: {self.itog['sila_levogo']:,.0f}".replace(",", " "),
+            poverhnost, f"Сила: {sila_sostava(self.ii.ostalos_po_tipam[0]):,.0f}".replace(",", " "),
             self.sh_obychniy, self.palette["levaya_sila"],
             (self.arena.left + 20, self.arena.bottom + 30), "midleft"
         )
         self.tekst(
-            poverhnost, f"Сила: {self.itog['sila_pravogo']:,.0f}".replace(",", " "),
+            poverhnost, f"Сила: {sila_sostava(self.ii.ostalos_po_tipam[1]):,.0f}".replace(",", " "),
             self.sh_obychniy, self.palette["pravaya_sila"],
             (self.arena.right - 20, self.arena.bottom + 30), "midright"
         )
@@ -1410,6 +1489,10 @@ class Avtoboy:
             zagolovok = "ПОРАЖЕНИЕ"
             cvet_zagolovka = (240, 139, 128)
             podzagolovok = "Победила вражеская группа"
+        elif pobeditel == "prervan":
+            zagolovok = "БОЙ ПРЕРВАН"
+            cvet_zagolovka = (249, 216, 157)
+            podzagolovok = "Бойцы не смогли продолжить сражение"
         else:
             zagolovok = "НИЧЬЯ"
             cvet_zagolovka = (249, 216, 157)
@@ -1458,11 +1541,19 @@ class Avtoboy:
         )
 
     def narisovat(self, poverhnost):
+        prozrachnost = self.poyavlenie if self.stadiya == "bitva" else self.poyavlenie_itoga
+        if self.stadiya == "rezultat" and prozrachnost < 1:
+            self.oformit_podlozhku(poverhnost)
+            self.narisovat_bitvu(poverhnost)
+        fon_do_okna = poverhnost.copy() if prozrachnost < 1 else None
         self.oformit_podlozhku(poverhnost)
         if self.stadiya == "bitva":
             self.narisovat_bitvu(poverhnost)
         else:
             self.narisovat_rezultat(poverhnost)
+        if fon_do_okna is not None:
+            fon_do_okna.set_alpha(round(255*(1-prozrachnost)))
+            poverhnost.blit(fon_do_okna,(0,0))
 
 
 
@@ -1472,7 +1563,6 @@ class Avtoboy:
 class Hex: #$\sqrt{\Delta x^2 + \Delta y^2}$)
     def __init__(self, row, col, hex_x, hex_y, hex_radius):
         self.building = None
-        self.build_unlocked = False
         self.col = col
         self.row = row
         self.center = pygame.math.Vector2(hex_x, hex_y)
@@ -1488,6 +1578,7 @@ class Hex: #$\sqrt{\Delta x^2 + \Delta y^2}$)
             
         self.event = None
         self.event_state = None
+        self.build_unlocked = False
         self.is_water = False
     
     def is_has_neighbor(self, other_hex): #Проверка если ли соседняя клетка рядом с ней
@@ -1498,16 +1589,27 @@ class Hex: #$\sqrt{\Delta x^2 + \Delta y^2}$)
     
     def draw(self, surface, color, thick):
         pygame.draw.polygon(surface, color, self.table_points, thick)
-
+        #ЕСЛИ ТАМ ЕСТЬ ИВЕНТ:
+        if self.event is not None:
+            has_event = font.render("!" if self.event_state == "failed_battle" else "?", True, (255, 65, 65) if self.event_state == "failed_battle" else (255, 230, 0))
+            event_rect = has_event.get_rect(center=(self.center.x, self.center.y))
+            surface.blit(has_event, event_rect)
+            
 #HEX TOOL (Создаём саму сетку):
 def create_hex_grid(hex_grid_width, hex_grid_height, hex_grid_radius):
     grid = {} #{(col, row): Hex}
     step_x = 1.5 * hex_grid_radius
     step_y = math.sqrt(3) * hex_grid_radius
-    
     hex_colons = int(hex_grid_width // step_x) + 1
     hex_rows = int(hex_grid_height // step_y) + 1
-    
+
+    # Подогнали сетку по границам леса, гор и берега на MainMap.png (1452 на 831).
+    # Старые номера клеток оставляем, чтобы не потерять разметку провинций.
+    sx, sy = hex_grid_width / 1452, hex_grid_height / 831
+    shag_x, shag_y = 35.84 * sx, 42.08 * sy
+    nachalo_x, nachalo_y = 19.81 * sx, 16.17 * sy
+    radius_x, radius_y = shag_x / 1.5, shag_y / math.sqrt(3)
+
     for col in range(hex_colons):
         for row in range(hex_rows):
             hex_grid_x = col * step_x + hex_grid_radius
@@ -1515,27 +1617,82 @@ def create_hex_grid(hex_grid_width, hex_grid_height, hex_grid_radius):
             if col % 2 == 1:
                 hex_grid_y += step_y / 2 #сдвигаем нечётный столбец вниз на половину
             if hex_grid_x < hex_grid_width and hex_grid_y < hex_grid_height: #не добавляем hexы за экраном
-                grid[(col, row)] = Hex(row, col, hex_grid_x, hex_grid_y, hex_grid_radius)
-                
+                cx = nachalo_x + col * shag_x
+                cy = nachalo_y + (row + (col % 2) / 2) * shag_y
+                tile = Hex(row, col, cx, cy, hex_grid_radius)
+                tile.table_points = [
+                    (cx + radius_x * math.cos(math.radians(60*i)),
+                     cy + radius_y * math.sin(math.radians(60*i)))
+                    for i in range(6)
+                ]
+                grid[(col, row)] = tile
     return grid
+
+
+class KameraKarty:
+    def __init__(self, razmer):
+        self.shirina, self.vysota = razmer
+        self.sbrosit()
+
+    def sbrosit(self):
+        self.masshtab = 1.0
+        self.x = self.y = 0.0
+        self.peretaskivanie = False
+
+    def oblast(self):
+        w = max(1, round(self.shirina / self.masshtab))
+        h = max(1, round(self.vysota / self.masshtab))
+        return pygame.Rect(round(self.x), round(self.y), w, h)
+
+    def ogranichit(self):
+        oblast = self.oblast()
+        self.x = max(0, min(self.x, self.shirina - oblast.width))
+        self.y = max(0, min(self.y, self.vysota - oblast.height))
+
+    def v_koordinaty_karty(self, pozitsiya):
+        oblast = self.oblast()
+        return (oblast.x + pozitsiya[0] * oblast.width / self.shirina,
+                oblast.y + pozitsiya[1] * oblast.height / self.vysota)
+
+    def izmenit_masshtab(self, shag, pozitsiya):
+        # Приближаем именно ту часть карты, на которую смотрит курсор.
+        x, y = self.v_koordinaty_karty(pozitsiya)
+        self.masshtab = max(1.0, min(3.0, self.masshtab * 1.15 ** max(-20, min(20, shag))))
+        oblast = self.oblast()
+        self.x = x - pozitsiya[0] * oblast.width / self.shirina
+        self.y = y - pozitsiya[1] * oblast.height / self.vysota
+        self.ogranichit()
+
+    def sdvinut(self, sdvig):
+        oblast = self.oblast()
+        self.x -= sdvig[0] * oblast.width / self.shirina
+        self.y -= sdvig[1] * oblast.height / self.vysota
+        self.ogranichit()
+
+    def narisovat(self, poverhnost, karta):
+        oblast = self.oblast()
+        if self.masshtab == 1.0:
+            poverhnost.blit(karta, (0, 0))
+        else:
+            poverhnost.blit(pygame.transform.smoothscale(karta.subsurface(oblast),
+                                                        (self.shirina, self.vysota)), (0, 0))
+
 
 #HEX TOOL (Конкретная клетка под курсором мыши):
 def hex_under_mouse(grid, mouse_pos=None):
     if mouse_pos is None:
         mouse_pos = pygame.mouse.get_pos()
-    m_vec = pygame.math.Vector2(mouse_pos)
-    closest_hex = None
-    min_dist = float("inf")
-
+    x, y = kamera_karty.v_koordinaty_karty(mouse_pos)
+    # Проверяем настоящий многоугольник, а не круг вокруг центра гекса.
     for hex_tile in grid.values():
-        dist = hex_tile.center.distance_to(m_vec)
-        if dist < min_dist:
-            min_dist = dist
-            closest_hex = hex_tile
-            
-    if closest_hex and min_dist <= closest_hex.radius:
-        return closest_hex
+        cx, cy = hex_tile.center.x, hex_tile.center.y
+        rx = hex_tile.table_points[0][0] - cx
+        hy = hex_tile.table_points[1][1] - cy
+        dx, dy = abs(x-cx), abs(y-cy)
+        if dy <= hy + 1e-8 and dx / rx + dy / (2*hy) <= 1 + 1e-8:
+            return hex_tile
     return None
+
 
 
 def nayti_sosedey(kletka, hex_grid):
@@ -1565,10 +1722,12 @@ def nayti_sosedey(kletka, hex_grid):
 
 
 #Все достижимые клетки:
+# Все достижимые клетки и предшественники маршрута
 
 def nayti_dostupnye_kletki(muravey, zapas=None):
     nachalo = (muravey.kletka.col, muravey.kletka.row)
     #Реальные затраты на клетку:
+    # Тут считаем реальные затраты на клетки.
     ochered = [(0, nachalo)]
     rashody = {nachalo: 0}
     otkuda = {}
@@ -1590,6 +1749,7 @@ def nayti_dostupnye_kletki(muravey, zapas=None):
             continue
 
         #ВОДА = СМЕРТЬ
+        # Вода допускается как конечная ловушка.
         if koord != nachalo:
             tip = provintsii_kletok[koord]
             if tipy_provintsiy[tip].get("smertelna", False):
@@ -1630,6 +1790,7 @@ def nayti_podhod_k_vragu(muravey, vrag, dostupnye=None):
         return None
 
     #В упор не тратим очки хода:
+    # Если уже в упор, то на атаку очки движения не нужны.
     if muravey.kletka.is_has_neighbor(vrag.kletka):
         return muravey.kletka
 
@@ -1668,6 +1829,7 @@ def can_place_building(tile, building_type):
     coords = (tile.col, tile.row)
     terrain = tipy_provintsiy[provintsii_kletok[coords]]
     #ФИКС НЕ ПОСТАВИТЬ ЗДАНИЕ ПОД НОГАМИ
+    # Проверяем ещё и маршрут юнита, чтобы не поставить здание прямо у него под ногами.
     is_occupied = any(
         unit.zdorovie > 0 and (unit.kletka is tile or tile in unit.marshrut)
         for unit in muravi
@@ -1701,10 +1863,12 @@ def find_free_neighbor(tile, avoid_events=False):
             if candidate.event is None:
                 return candidate
 
-    return candidates[0] if candidates else None
+    return None if avoid_events else (candidates[0] if candidates else None)
 
 
 def recruit_from_ant_house(ant_house, unit_type):
+    if ant_house not in buildings or ant_house.name != "ant_house" or unit_type not in resource_manager.unit_costs:
+        return False
     unit_count = sum(unit.poluchit_yacheyki() for unit in muravi if unit.komanda == "igrok" and unit.zdorovie > 0)
     max_units = sum(building.unit_slots for building in buildings)
     needed_slots = 12 * units[unit_type].get("yacheyki", 0)
@@ -1725,8 +1889,9 @@ def recruit_from_ant_house(ant_house, unit_type):
         print("Вокруг Муравейника нет свободной клетки!")
         return False
 
+    new_unit = Muravey(unit_type, spawn_tile, "igrok", 12)
     resource_manager.apply_unit_cost(unit_type)
-    muravi.append(Muravey(unit_type, spawn_tile, "igrok", 12))
+    muravi.append(new_unit)
     print(f"Нанят новый отряд: {units[unit_type].get('nazvanie', unit_type)}")
     return True
 
@@ -1738,7 +1903,7 @@ def create_random_event(event_type):
         spider_count = 1 if units.get("pauk", {}).get("odin", False) else random.randint(2, 3)
         return {"type": "spider", "count": spider_count}
     if event_type == "tarantula":
-        return {"type": "tarantula", "count": random.randint(1, 2)}
+        return {"type": "tarantula", "count": 1}
     if event_type == "add_resources":
         return {
             "type": "add_resources",
@@ -1765,7 +1930,7 @@ def generate_map_events():
     for tile in hex_grid.values():
         if tile in occupied_tiles:
             continue
-        if tile.center.y < 46 or hud.is_mouse_over(tile.center) or end_turn_button.is_hovered(tile.center): #НЕ СТАВИМ ивенты под HUD
+        if tile.center.y < 46 or hud.is_mouse_over(tuple(tile.center)) or hud.select_rect.collidepoint(tuple(tile.center)): #НЕ СТАВИМ ивенты под HUD
             continue
         coords = (tile.col, tile.row)
         terrain = tipy_provintsiy[provintsii_kletok[coords]]
@@ -1877,7 +2042,7 @@ def trigger_hex_event(player_ant, tile):
                 (170, 175, 185),
                 "Грустно, понятно)"
             )
-        spawn_tile = find_free_neighbor(tile)
+        spawn_tile = find_free_neighbor(tile, avoid_events=True)
         unit_title = units[new_type].get("nazvanie", new_type)
 
         if spawn_tile is not None:
@@ -1937,8 +2102,9 @@ def trigger_hex_event(player_ant, tile):
 def draw_tile_markers(surface):
     for tile in hex_grid.values():
         if tile.build_unlocked:
-            border_color = (90, 235, 165) if tile.building is None else (235, 200, 95)
-            pygame.draw.polygon(surface, border_color, tile.table_points, 3)
+            if tile.building is None:
+                mark = marker_font.render("+", True, (177, 229, 135))
+                surface.blit(mark, mark.get_rect(center=tuple(tile.center)))
 
         if tile.event is not None:
             cx, cy = int(tile.center.x), int(tile.center.y)
@@ -1950,6 +2116,44 @@ def draw_tile_markers(surface):
             mark = marker_font.render(symbol, True, color)
             surface.blit(shadow, shadow.get_rect(center=(cx + 1, cy + 1)))
             surface.blit(mark, mark.get_rect(center=(cx, cy)))
+
+
+def process_pending_events():
+    global event_popup, vybrannyy_muravey, tsel_ataki, kontekstnoe_menu, okno_otryada, razdelenie, selected_ant_house
+    while pending_event_triggers and event_popup is None:
+        triggered_ant, triggered_tile = pending_event_triggers.popleft()
+        if triggered_ant.zdorovie <= 0 or triggered_ant.kletka is not triggered_tile or triggered_tile.event is None:
+            continue
+        vybrannyy_muravey = tsel_ataki = kontekstnoe_menu = okno_otryada = razdelenie = None
+        hud.selected_tile = None
+        selected_ant_house = None
+        kamera_karty.peretaskivanie = False
+        event_popup = trigger_hex_event(triggered_ant, triggered_tile)
+
+
+def start_event_battle(battle_data):
+    global avtoboy, active_event_battle
+    player = battle_data["player_ant"]
+    tile = battle_data["tile"]
+    if player.zdorovie <= 0 or tile.event is None:
+        return
+    enemy = Muravey(battle_data["enemy_type"], tile, "vrag", battle_data["count"])
+    active_event_battle = {"tile": tile, "enemy": enemy}
+    player.atakoval_v_etom_hodu = True
+    avtoboy = Avtoboy(player, enemy)
+
+
+def finish_event_battle():
+    global active_event_battle
+    if active_event_battle is None:
+        return
+    tile, enemy = active_event_battle["tile"], active_event_battle["enemy"]
+    if enemy.kolichestvo <= 0:
+        tile.event = tile.event_state = None
+    elif tile.event is not None:
+        tile.event["count"] = enemy.kolichestvo
+        tile.event_state = "failed_battle"
+    active_event_battle = None
 
 
 # Управление составом отрядов
@@ -2099,19 +2303,18 @@ class OknoSostava:
         otryad = self.otryad
         p = self.panel
         poverhnost.blit(self.fon, (0,0))
-        pygame.draw.rect(poverhnost, (41,56,44), p)
+        pygame.draw.rect(poverhnost, (32,59,39), p)
         nadpis_na_okne(poverhnost, "СОСТАВ ОТРЯДА", (p.left+24,p.top+24), 26)
-        nadpis_na_okne(poverhnost, "×", self.krestik.center, 26, vyrovnyat="center")
         for i, (podpis, cifra) in enumerate((("Численность", otryad.kolichestvo),
                                                ("Сила", round(otryad.poluchit_silu())),
                                                ("Ячейки", otryad.poluchit_yacheyki()))):
             rect = pygame.Rect(p.left+24+i*218,p.top+77,206,75)
-            pygame.draw.rect(poverhnost,(57,75,55),rect)
+            pygame.draw.rect(poverhnost,(52,83,42),rect)
             nadpis_na_okne(poverhnost,podpis,(rect.left+12,rect.top+9),16,(198,211,192))
             nadpis_na_okne(poverhnost,f"{cifra:,}".replace(","," "),(rect.left+12,rect.top+32),27)
         for i,(tip,kol) in enumerate(otryad.sostav.items()):
             rect = pygame.Rect(p.left+24,p.top+165+i*98,p.width-48,88)
-            pygame.draw.rect(poverhnost,(52,70,49),rect)
+            pygame.draw.rect(poverhnost,(48,75,49),rect)
             telo, usiki = zagruzchik_atlasov.poluchit_animatsiyu(tip,otryad.komanda,58)
             kartinka = telo["pokoy"][0].copy()
             if usiki:
@@ -2130,9 +2333,9 @@ class OknoSostava:
         self.narisovat_knopku(poverhnost,"ЗАКРЫТЬ",True)
 
     def narisovat_knopku(self, poverhnost, tekst, aktivna):
-        cvet = (91,120,75) if aktivna else (70,76,67)
+        cvet = (81,125,50) if aktivna else (70,76,67)
         if aktivna and self.knopka.collidepoint(pygame.mouse.get_pos()):
-            cvet = (110,145,92)
+            cvet = (101,151,66)
         pygame.draw.rect(poverhnost,cvet,self.knopka)
         nadpis_na_okne(poverhnost,tekst,self.knopka.center,18,(255,255,255) if aktivna else (155,163,150),"center")
 
@@ -2189,7 +2392,7 @@ class OknoRazdeleniya(OknoSostava):
         p = self.panel
         o = self.otryad
         poverhnost.blit(self.fon,(0,0))
-        pygame.draw.rect(poverhnost,(41,56,44),p)
+        pygame.draw.rect(poverhnost,(32,59,39),p)
         nadpis_na_okne(poverhnost,"РАЗДЕЛЕНИЕ ОТРЯДА",(p.left+24,p.top+24),26)
         nadpis_na_okne(poverhnost,"×",self.krestik.center,26,vyrovnyat="center")
         nadpis_na_okne(poverhnost,f"{o.kolichestvo} муравьёв  ·  {o.poluchit_yacheyki()} занятых ячеек",(p.left+24,p.top+64),16,(198,211,192))
@@ -2198,14 +2401,14 @@ class OknoRazdeleniya(OknoSostava):
             vsego = o.sostav[tip]
             nadpis_na_okne(poverhnost,units[tip]["nazvanie"],(rect.left,rect.top-32),18)
             nadpis_na_okne(poverhnost,f"{n} / {vsego}",(rect.right,rect.top-32),20,vyrovnyat="topright")
-            pygame.draw.rect(poverhnost,(70,86,67),pygame.Rect(rect.left,rect.centery-4,rect.width,8))
+            pygame.draw.rect(poverhnost,(63,88,52),pygame.Rect(rect.left,rect.centery-4,rect.width,8))
             x = round(rect.left+rect.width*n/vsego)
             pygame.draw.rect(poverhnost,(122,164,92),pygame.Rect(rect.left,rect.centery-4,x-rect.left,8))
             pygame.draw.rect(poverhnost,(217,231,207),pygame.Rect(x-7,rect.top,14,rect.height))
         ostatok = {tip:kol-self.vybrannyy_sostav[tip] for tip,kol in o.sostav.items()}
         for i,(podpis,sostav) in enumerate((("Остаётся",ostatok),("Отделяется",self.vybrannyy_sostav))):
             rect = pygame.Rect(p.left+24+i*326,p.top+250,316,180)
-            pygame.draw.rect(poverhnost,(57,75,55),rect)
+            pygame.draw.rect(poverhnost,(52,83,42),rect)
             nadpis_na_okne(poverhnost,podpis,(rect.left+14,rect.top+10),18,(198,211,192))
             nadpis_na_okne(poverhnost,sum(sostav.values()),(rect.left+14,rect.top+35),30)
             for j,(tip,kol) in enumerate(sostav.items()):
@@ -2221,57 +2424,266 @@ class OknoRazdeleniya(OknoSostava):
         self.narisovat_knopku(poverhnost,"РАЗДЕЛИТЬ",prichina is None)
 
 
-# Инициализация карты
-hex_grid = create_hex_grid(HEX_GRID_WIDTH, HEX_GRID_HEIGHT, HEX_GRID_RADIUS)
-put_karty = os.path.join(data_dir, "karta_provintsiy.json")
-provintsii_kletok = {koord: "polya" for koord in hex_grid}
+# Графические эффекты отдельно от логики, чтобы они не влияли на результат боя.
+class VizualnyeEffekty:
+    def __init__(self):
+        self.chastitsy = []
+        self.random = random.Random(217)
 
-if os.path.exists(put_karty):
-    with open(put_karty, "r", encoding="utf-8") as fail:
-        sohranennye = json.load(fail)
-    for koord, tip in sohranennye.items():
-        col, row = map(int, koord.split(","))
-        if (col, row) in hex_grid and tip in tipy_provintsiy:
-            provintsii_kletok[(col, row)] = tip
+    def pyl(self, pozitsiya, cvet, kol=3):
+        for _ in range(kol):
+            if len(self.chastitsy) >= 320:
+                break
+            ugol = self.random.uniform(0, math.tau)
+            skorost = self.random.uniform(8, 24)
+            self.chastitsy.append([pygame.math.Vector2(pozitsiya),
+                                   pygame.math.Vector2(math.cos(ugol), math.sin(ugol))*skorost,
+                                   self.random.uniform(.3, .65), cvet])
+
+    def udar(self, pozitsiya, uron):
+        if len(self.chastitsy) < 320:
+            self.chastitsy.append([pygame.math.Vector2(pozitsiya), pygame.math.Vector2(0,-25),
+                                   .65, (255, 227, 175), round(uron, 1)])
+
+    def obnovit(self, dt):
+        for ch in self.chastitsy:
+            ch[0] += ch[1]*dt
+            ch[2] -= dt
+        self.chastitsy = [ch for ch in self.chastitsy if ch[2] > 0]
+
+    def narisovat(self, poverhnost):
+        for ch in self.chastitsy:
+            p, _, vremya, cvet = ch[:4]
+            alfa = min(255, int(vremya*390))
+            if len(ch) == 5:
+                kartinka = poluchit_shrift(12).render(f"−{ch[4]:g}", True, cvet)
+                kartinka.set_alpha(alfa)
+                poverhnost.blit(kartinka, kartinka.get_rect(center=(round(p.x),round(p.y)-12)))
+                if vremya > .52:
+                    pygame.draw.circle(poverhnost, (255, 235, 190), (round(p.x), round(p.y)), 2)
+            else:
+                radius = max(1, round(4-vremya*4))
+                sloy = pygame.Surface((radius*2+2, radius*2+2), pygame.SRCALPHA)
+                pygame.draw.circle(sloy, (*cvet, alfa//3), (radius+1,radius+1),radius)
+                poverhnost.blit(sloy, (round(p.x)-radius,round(p.y)-radius))
+
+
+teni = {}
+
+def narisovat_ten(poverhnost, pozitsiya, shirina, vysota):
+    kluch = (max(4, int(shirina)), max(4, int(vysota)))
+    if kluch not in teni:
+        w, h = kluch
+        sloy = pygame.Surface(kluch, pygame.SRCALPHA)
+        for i in range(8):
+            otstup = i/16
+            rect = pygame.Rect(round(w*otstup), round(h*otstup),
+                               max(1, round(w*(1-2*otstup))), max(1,round(h*(1-2*otstup))))
+            pygame.draw.ellipse(sloy, (12, 19, 12, (2+i*2 if w > 300 else 12+i*9)), rect)
+        teni[kluch] = sloy
+    sloy = teni[kluch]
+    poverhnost.blit(sloy, sloy.get_rect(center=(round(pozitsiya[0])+2, round(pozitsiya[1])+3)))
+
+
+teni_oblakov = {}
+
+
+def narisovat_oblako(poverhnost, pozitsiya, shirina, vysota, variant):
+    kluch = (shirina, vysota, variant)
+    if kluch not in teni_oblakov:
+
+        w, h = 180, 90
+        sloy = pygame.Surface((w, h), pygame.SRCALPHA)
+        rng = random.Random(900 + variant)
+        pyatna = [(rng.randint(46, 134), rng.randint(29, 61), rng.randint(25, 43), rng.randint(18, 26)) for _ in range(8)]
+        for i in range(12):
+            scale = 1 - i * .058
+            alfa = round(5 + 65 * (i / 11) ** 1.4)
+            for cx, cy, rx, ry in pyatna:
+                dx, dy = round(rx * scale), round(ry * scale)
+                pygame.draw.ellipse(sloy, (10, 20, 10, alfa), (cx-dx, cy-dy, dx*2, dy*2))
+        teni_oblakov[kluch] = pygame.transform.smoothscale(sloy, (shirina, vysota))
+    sloy = teni_oblakov[kluch]
+    poverhnost.blit(sloy, sloy.get_rect(center=pozitsiya))
+
+
+def narisovat_marshrut(poverhnost, otryad, koord, dostupnye, otkuda):
+    if koord not in dostupnye:
+        return
+    nachalo = (otryad.kletka.col, otryad.kletka.row)
+    tochki = [hex_grid[koord].center]
+    tek = koord
+    while tek != nachalo:
+        tek = otkuda[tek]
+        tochki.append(hex_grid[tek].center)
+    tochki.reverse()
+    for a, b in zip(tochki, tochki[1:]):
+        d = a.distance_to(b)
+        for i in range(1, max(2, int(d/7))):
+            p = a+(b-a)*(i/max(2,int(d/7)))
+            pygame.draw.circle(poverhnost, (26,36,26), (round(p.x),round(p.y)), 3)
+            pygame.draw.circle(poverhnost, (244,235,195), (round(p.x),round(p.y)), 2)
+    p = tochki[-1]
+    nadpis_na_okne(poverhnost, str(dostupnye[koord]), (round(p.x),round(p.y)-10), 16,
+                   (255,248,218), 'center')
+
+
+# Старый HUD оставляем как есть, меняем только то, что игрок видит и куда нажимает.
+class VisualHUD(HUD):
+    PANEL = (32, 59, 39)
+    CARD = (52, 83, 42)
+    TEXT = (241, 235, 221)
+    MUTED = (189, 208, 182)
+    ACCENT = (216, 187, 120)
+    NAMES = {"Stone_Farm": "Каменоломня", "Wood_Farm": "Ферма", "ant_house": "Муравейник"}
+    DETAILS = {"Stone_Farm": "+5 камня за ход", "Wood_Farm": "+5 дерева за ход",
+               "ant_house": "+7 дерева и камня; +60 ячеек"}
+
+    def __init__(self, resource_manager, width_hud, height_hud, building_images, resource_emojis):
+        super().__init__(resource_manager,width_hud,height_hud,building_images,resource_emojis)
+        w, h = width_hud, height_hud
+        self.resources_rect = pygame.Rect(0,0,w,44)
+        self.build_rect = pygame.Rect(w-332,h-146,320,84)
+        self.select_rect = pygame.Rect(12,h-174,330,162)
+        self.end_turn_button = EndTurnButton("ЗАВЕРШИТЬ ХОД  [N]", w-332, h-54, 320, 42)
+        self.turn_rect = self.end_turn_button.rect
+        self.selected_group = None
+        self.recruit_rect = pygame.Rect(12,h-276,420,264)
+        self.recruit_buttons = []
+        self.recruit_icons = {unit_type: Animatsiya(unit_type, "igrok", 58).kartinka(0)
+                              for unit_type in ("rabochiy", "soldat")}
+        self.ready = True
+        self.editor = False
+        self.resource_changes = {}
+        self.previous_resources = dict(resource_manager.resources)
+        self.tiles = []
+        self.resource_icons = {name:font_smiles.render(emoji,True,self.TEXT)
+                               for name,emoji in resource_emojis.items()}
+
+        wood = pygame.Surface((30,30),pygame.SRCALPHA)
+        pygame.draw.rect(wood,(116,78,43),(12,17,6,12))
+        for y,half in ((1,8),(8,11),(14,14)):
+            pygame.draw.polygon(wood,(72,150,64),[(15,y),(15-half,y+12),(15+half,y+12)])
+        stone = pygame.Surface((30,30),pygame.SRCALPHA)
+        pygame.draw.polygon(stone,(151,160,151),[(2,20),(6,9),(16,4),(25,10),(28,22),(19,27),(8,26)])
+        pygame.draw.polygon(stone,(198,204,190),[(6,9),(16,4),(25,10),(14,15)])
+        pygame.draw.polygon(stone,(106,118,107),[(14,15),(25,10),(28,22),(19,27)])
+        self.resource_icons = {"wood":wood,"stone":stone}
+        for index,(name,image) in enumerate(building_images.items()):
+            rect = pygame.Rect(self.build_rect.x+8+index*102,self.build_rect.y+8,100,68)
+            scale = min(54/image.get_width(),40/image.get_height())
+            icon = pygame.transform.smoothscale(image,(max(1,round(image.get_width()*scale)),max(1,round(image.get_height()*scale))))
+            self.tiles.append({"name":name,"icon":icon,"rect":rect})
+
+    def is_mouse_over(self, mouse_pos):
+        return (self.resources_rect.collidepoint(mouse_pos) or self.build_rect.collidepoint(mouse_pos)
+                or self.turn_rect.collidepoint(mouse_pos)
+                or (selected_ant_house is not None and not redaktor and self.recruit_rect.collidepoint(mouse_pos))
+                or (vybrannyy_muravey is not None and not redaktor and self.select_rect.collidepoint(mouse_pos)))
+
+
+    def draw_recruitment(self, surface, unit_count, max_units):
+        panel = self.recruit_rect
+        pygame.draw.rect(surface, self.PANEL, panel)
+        nadpis_na_okne(surface, "МУРАВЕЙНИК", (panel.x + 12, panel.y + 12), 20, self.ACCENT)
+        free_slots = max(0, max_units - unit_count)
+        nadpis_na_okne(surface, f"Свободно: {free_slots} ячеек", (panel.x + 12, panel.y + 42), 16, self.MUTED)
+        self.recruit_buttons = []
+        mouse_pos = pygame.mouse.get_pos()
+        for index, (unit_type, title) in enumerate((("rabochiy", "Рабочие × 12"), ("soldat", "Солдаты × 12"))):
+            rect = pygame.Rect(panel.x + 10 + index * 202, panel.y + 70, 198, 184)
+            pygame.draw.rect(surface, self.CARD, rect)
+            icon = self.recruit_icons[unit_type]
+            surface.blit(icon, icon.get_rect(center=(rect.centerx, rect.y + 32)))
+            nadpis_na_okne(surface, title, (rect.centerx, rect.y + 70), 18, self.TEXT, "center")
+            unit_data = units[unit_type]
+            nadpis_na_okne(surface, f"ХП: {unit_data['zdorovie']}  Урон: {unit_data['uron']}", (rect.centerx, rect.y + 94), 14, self.TEXT, "center")
+            cost = self.resource_manager.unit_costs[unit_type]
+            nadpis_na_okne(surface, f"Дер: {cost['wood']}   Кам: {cost['stone']}", (rect.centerx, rect.y + 118), 16, self.ACCENT, "center")
+            button_rect = pygame.Rect(rect.x + 6, rect.bottom - 38, rect.width - 12, 32)
+            needed_slots = 12 * unit_data.get("yacheyki", 0)
+            has_slot = unit_count + needed_slots <= max_units
+            can_afford = self.resource_manager.is_unit_affordable(unit_type)
+            has_free_neighbor = find_free_neighbor(selected_ant_house.tile, avoid_events=True) is not None
+            b_enabled = has_slot and can_afford and has_free_neighbor
+            hovered = button_rect.collidepoint(mouse_pos)
+            label = "НАНЯТЬ" if b_enabled else "НЕТ ЯЧЕЕК" if not has_slot else "НЕТ РЕСУРСОВ" if not can_afford else "НЕТ МЕСТА"
+            bg_color = (101, 151, 66) if b_enabled and hovered else (81, 125, 50) if b_enabled else (65, 73, 61)
+            pygame.draw.rect(surface, bg_color, button_rect)
+            nadpis_na_okne(surface, label, button_rect.center, 14, self.TEXT if b_enabled else self.MUTED, "center")
+            self.recruit_buttons.append({"unit_type": unit_type, "title": title, "rect": button_rect})
+
+    def draw(self, screen, unit_count=0, max_units=0):
+        mouse = pygame.mouse.get_pos()
+        for rect in (self.resources_rect,self.build_rect,self.turn_rect):
+            pygame.draw.rect(screen,self.PANEL,rect)
+        nadpis_na_okne(screen,f"ХОД {turn_number}",(16,22),20,self.ACCENT,'midleft')
+        nadpis_na_okne(screen,f"Ячейки юнитов: {unit_count}/{max_units}",(155,22),18,
+                       (240,150,137) if unit_count>max_units else self.TEXT,'midleft')
+        if self.editor:
+            nadpis_na_okne(screen,"РЕДАКТОР · F5 — сохранить",(self.width_hud//2,22),18,self.ACCENT,'center')
+        for i,(name,value) in enumerate(self.resource_manager.resources.items()):
+            x = self.width_hud-430+i*210
+            icon = self.resource_icons.get(name)
+            if icon is not None:
+                screen.blit(icon,icon.get_rect(midleft=(x,22)))
+            nadpis_na_okne(screen,f"{'Дерево' if name == 'wood' else 'Камень'}: {value}",(x+34,22),18,self.TEXT,'midleft')
+            old = self.previous_resources.get(name,value)
+            if old != value:
+                self.resource_changes[name] = (value-old,1.3)
+            self.previous_resources[name] = value
+            if name in self.resource_changes:
+                change,t = self.resource_changes[name]
+                nadpis_na_okne(screen,f"{change:+d}",(x+155,22),16,(166,214,139) if change>0 else (240,150,137),'midleft')
+                self.resource_changes[name] = (change,t-delta_time)
+                if t <= 0:
+                    del self.resource_changes[name]
+        hovered = None
+        for tile in self.tiles:
+            rect = tile['rect']
+            active = self.selected_tile is tile
+            over = rect.collidepoint(mouse)
+            affordable = self.resource_manager.is_affordable(tile['name'])
+            pygame.draw.rect(screen,(102,120,67) if active else (75,94,65) if over else self.CARD,rect)
+            icon = tile['icon']
+            screen.blit(icon,icon.get_rect(center=(rect.centerx,rect.top+23)))
+            nadpis_na_okne(screen,self.NAMES[tile['name']],(rect.centerx,rect.bottom-12),12,self.TEXT if affordable else (212,154,141),'center')
+            if over:
+                hovered = tile['name']
+        has_unused_moves = any(unit.komanda == "igrok" and unit.zdorovie > 0 and unit.ostalos_hodov > 0 for unit in muravi)
+        self.end_turn_button.draw(screen, turn_number, self.ready, has_unused_moves)
+        group = self.selected_group
+        if selected_ant_house is not None and not self.editor:
+            self.draw_recruitment(screen,unit_count,max_units)
+        elif group is not None:
+            p = self.select_rect
+            pygame.draw.rect(screen,self.PANEL,p)
+            nadpis_na_okne(screen,group.nazvanie.upper(),(p.x+12,p.y+12),18,self.ACCENT)
+            nadpis_na_okne(screen,f"Численность: {group.kolichestvo}",(p.x+12,p.y+43),16,self.TEXT)
+            nadpis_na_okne(screen,f"Сила: {round(group.poluchit_silu()):,}".replace(',',' '),(p.x+12,p.y+68),16,self.TEXT)
+            nadpis_na_okne(screen,"Атака: " + ("использована" if group.atakoval_v_etom_hodu else "доступна"),(p.x+12,p.y+93),16,self.MUTED)
+            for i in range(group.prohodimost):
+                pygame.draw.rect(screen,(131,166,109) if i<group.ostalos_hodov else self.CARD,(p.x+12+i*24,p.y+129,20,12))
+            nadpis_na_okne(screen,f"{group.ostalos_hodov}/{group.prohodimost}",(p.x+130,p.y+135),16,self.TEXT,'midleft')
+        if hovered:
+            rect = pygame.Rect(self.build_rect.x-30,self.build_rect.y-100,350,92)
+            pygame.draw.rect(screen,self.PANEL,rect)
+            cost = self.resource_manager.costs[hovered]
+            nadpis_na_okne(screen,self.NAMES[hovered],(rect.x+12,rect.y+10),18,self.ACCENT)
+            nadpis_na_okne(screen,f"Дерево: {cost['wood']}   Камень: {cost['stone']}",(rect.x+12,rect.y+37),16,self.TEXT)
+            nadpis_na_okne(screen,self.DETAILS[hovered],(rect.x+12,rect.y+62),14,self.MUTED)
+
 
 setka_sloy = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+karta_sloy = pygame.Surface(screen.get_size())
+kamera_karty = KameraKarty(screen.get_size())
 
 cveta_koloniy = {"igrok": (82, 125, 200), "vrag": (189, 77, 77)}
 zagruzchik_atlasov = ZagruzchikAtlasov()
 
-muravi = [
-    Muravey("rabochiy", hex_grid[(4, 4)], "igrok", 12),
-    Muravey("soldat", hex_grid[(6, 4)], "igrok", 12),
-    Muravey("soldat", hex_grid[(10, 4)], "vrag", 9),
-    Muravey("bogomol", hex_grid[(12, 4)], "vrag", 1)
-]
-# Если на своей карте кто-то залил точку появления паука водой, ищем ближайшую сухую клетку.
-zanyatye_pri_spavne = {(m.kletka.col, m.kletka.row) for m in muravi}
-kletka_pauka = min((k for koord, k in hex_grid.items()
-                   if koord not in zanyatye_pri_spavne
-                   and tipy_provintsiy[provintsii_kletok[koord]].get("prohodima", True)
-                   and not tipy_provintsiy[provintsii_kletok[koord]].get("smertelna", False)),
-                  key=lambda k: k.center.distance_squared_to(hex_grid[(18, 5)].center), default=None)
-if kletka_pauka is not None:
-    muravi.append(Muravey("pauk", kletka_pauka, "vrag", 1))
-
-vybrannyy_muravey = None
-selected_ant_house = None
-tsel_ataki = None
-avtoboy = None
-event_popup = None
-pending_event_trigger = None
-active_event_battle = None
-kontekstnoe_menu = None
-okno_otryada = None
-razdelenie = None
-slivanie = None
-
-marker_font = poluchit_shrift(17)
-shrift_kolichestva = poluchit_shrift(13)
 shrift_imen_vragov = poluchit_shrift(12)
+marker_font = poluchit_shrift(22)
 
-effekty_smerti = []
 shrift_smerti = poluchit_shrift(12)
 tekst_smerti = shrift_smerti.render("Смерть", True, (255, 255, 255))
 
@@ -2292,13 +2704,6 @@ BUILDING_CLASSES = {
     "Wood_Farm": WoodFarm,
     "ant_house": Ant_House,
 }
-buildings = []
-
-resource_manager = ResourceManager()
-hud = HUD(resource_manager, 1600, 900, building_textures, resource_emojis)
-
-redaktor = False
-tip_kisti = "les"
 knopki_tipov = {
     pygame.K_1: "polya",
     pygame.K_2: "les",
@@ -2316,17 +2721,6 @@ cveta_tipov = {
     "voda": (30, 100, 210, 110)
 }
 
-turn_number = 1
-end_turn_button = EndTurnButton(
-    "Конец хода",
-    int(1600 * 0.84),
-    int(900 * 0.74) - 60,
-    int(1600 * 0.15),
-    50
-)
-
-generate_map_events()
-
 def next_turn():
     global turn_number, vybrannyy_muravey, tsel_ataki
     turn_number += 1
@@ -2341,47 +2735,141 @@ def next_turn():
     print(f"Новый ход: {turn_number}")
 
 
+# При выходе в меню начинаем с чистой карты и стартовых отрядов.
+def sbrosit_igru():
+    global hex_grid, put_karty, provintsii_kletok, muravi, vybrannyy_muravey
+    global tsel_ataki, avtoboy, kontekstnoe_menu, okno_otryada, razdelenie, slivanie
+    global effekty_smerti, buildings, resource_manager, hud, redaktor, tip_kisti
+    global event_popup, pending_event_triggers, active_event_battle, selected_ant_house, turn_number, end_turn_button
+    global x, delta_time, setka_obych, setka_redaktor, podsvetka_vremya, poslednee_vydelenie, vremya_okna, poslednee_okno, vremya_oblakov
+
+    # Инициализация карты
+    kamera_karty.sbrosit()
+    hex_grid = create_hex_grid(HEX_GRID_WIDTH, HEX_GRID_HEIGHT, HEX_GRID_RADIUS)
+    put_karty = os.path.join(data_dir, "karta_provintsiy.json")
+    provintsii_kletok = {koord: "polya" for koord in hex_grid}
+
+    if os.path.exists(put_karty):
+        with open(put_karty, "r", encoding="utf-8") as fail:
+            sohranennye = json.load(fail)
+        for koord, tip in sohranennye.items():
+            col, row = map(int, koord.split(","))
+            if (col, row) in hex_grid and tip in tipy_provintsiy:
+                provintsii_kletok[(col, row)] = tip
+
+
+    muravi = [
+        Muravey("rabochiy", hex_grid[(4, 4)], "igrok", 12),
+        Muravey("soldat", hex_grid[(6, 4)], "igrok", 12),
+        Muravey("soldat", hex_grid[(10, 4)], "vrag", 9),
+        Muravey("tarantul", hex_grid[(12, 4)], "vrag", 1)
+    ]
+    # Если на своей карте кто-то залил точку появления паука водой, ищем ближайшую сухую клетку.
+    zanyatye_pri_spavne = {(m.kletka.col, m.kletka.row) for m in muravi}
+    kletka_pauka = min((k for koord, k in hex_grid.items()
+                       if koord not in zanyatye_pri_spavne
+                       and tipy_provintsiy[provintsii_kletok[koord]].get("prohodima", True)
+                       and not tipy_provintsiy[provintsii_kletok[koord]].get("smertelna", False)),
+                      key=lambda k: k.center.distance_squared_to(hex_grid[(18, 5)].center), default=None)
+    if kletka_pauka is not None:
+        muravi.append(Muravey("pauk", kletka_pauka, "vrag", 1))
+
+    vybrannyy_muravey = None
+    tsel_ataki = None
+    avtoboy = None
+    kontekstnoe_menu = None
+    okno_otryada = None
+    razdelenie = None
+    slivanie = None
+    effekty_smerti = []
+    buildings = []
+    resource_manager = ResourceManager()
+    selected_ant_house = None
+    turn_number = 1
+    hud = VisualHUD(resource_manager, 1600, 900, building_textures, resource_emojis)
+    end_turn_button = hud.end_turn_button
+    setka_obych = pygame.Surface(screen.get_size(),pygame.SRCALPHA)
+    setka_redaktor = pygame.Surface(screen.get_size(),pygame.SRCALPHA)
+    for tile in hex_grid.values():
+        pygame.draw.polygon(setka_obych,(30,44,28,52),tile.table_points,1)
+        pygame.draw.polygon(setka_redaktor,(200,200,200,90),tile.table_points,3)
+    podsvetka_vremya = 0.0
+    poslednee_vydelenie = None
+    vremya_okna = 0.0
+    poslednee_okno = None
+    vremya_oblakov = 0.0
+    redaktor = False
+    event_popup = None
+    active_event_battle = None
+    pending_event_triggers = deque()
+    generate_map_events()
+    tip_kisti = "les"
+    x = 1000
+    delta_time = 0.1
+
+
+sbrosit_igru()
+
+# Главное меню работает отдельно от игрового цикла, пока игрок не нажмёт «Играть».
+main_menu = MainMenu(screen, MenuBackground(screen.get_size(),
+                                            tekstury_pola_boya.get("polya"),
+                                            zagruzchik_atlasov),
+                     poluchit_shrift)
+running = main_menu.run() == "play"
+clock.tick(60)
+
 while running:
     delta_time = max(0.001, min(0.1, clock.tick(60) / 1000))
     mouse_pos = pygame.mouse.get_pos()
+    events = pygame.event.get()
 
+    # Esc открывает меню даже во время боя. Пока меню открыто, игра стоит.
+    if any(event.type == pygame.QUIT for event in events):
+        running = False
+        break
+    if any(event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE for event in events):
+        kamera_karty.peretaskivanie = False
+        menu_action = main_menu.run("pause")
+        if menu_action == "menu":
+            sbrosit_igru()
+            running = main_menu.run() == "play"
+        elif menu_action == "quit":
+            running = False
+        clock.tick(60)
+        continue
+
+    # Пока идёт автобой, стратегическая карта полностью ждёт.
     #Идёт автобой или открыто окно ивента = карта ждёт
     if avtoboy is not None:
         avtoboy.obnovit(delta_time)
     elif event_popup is None:
-        x += 50 * delta_time
-        for muravey in muravi:
-            muravey.obnovit(delta_time)
+
+        if not pending_event_triggers:
+            x += 50 * delta_time
+            for muravey in muravi:
+                muravey.obnovit(delta_time)
 
         if slivanie is not None:
             otryad, sosed = slivanie
             if not otryad.marshrut:
                 if obiedinit_otryady(otryad, sosed):
                     vybrannyy_muravey = sosed
+                    pending_event_triggers = deque((sosed if m is otryad else m,k) for m,k in pending_event_triggers)
                 slivanie = None
 
-        if pending_event_trigger is not None:
-            triggered_ant, triggered_tile = pending_event_trigger
-            pending_event_trigger = None
-            if triggered_ant.zdorovie > 0 and triggered_tile.event is not None:
-                vybrannyy_muravey = None
-                tsel_ataki = None
-                selected_ant_house = None
-                kontekstnoe_menu = okno_otryada = razdelenie = None
-                event_popup = trigger_hex_event(triggered_ant, triggered_tile)
+        process_pending_events()
 
-        if event_popup is None:
-            for muravey in muravi:
-                vrag = muravey.vrag_dlya_boya
-                if vrag is None or muravey.marshrut:
-                    continue
-                muravey.vrag_dlya_boya = None
-                if (muravey.zdorovie > 0 and vrag.zdorovie > 0
-                        and muravey.kolichestvo > 0 and vrag.kolichestvo > 0
-                        and muravey.kletka.is_has_neighbor(vrag.kletka)):
-                    avtoboy = Avtoboy(muravey, vrag)
-                    kontekstnoe_menu = okno_otryada = razdelenie = None
-                    break
+        for muravey in muravi if event_popup is None else ():
+            vrag = muravey.vrag_dlya_boya
+            if vrag is None or muravey.marshrut:
+                continue
+            muravey.vrag_dlya_boya = None
+            if (muravey.zdorovie > 0 and vrag.zdorovie > 0
+                    and muravey.kolichestvo > 0 and vrag.kolichestvo > 0
+                    and muravey.kletka.is_has_neighbor(vrag.kletka)):
+                avtoboy = Avtoboy(muravey, vrag)
+                kontekstnoe_menu = okno_otryada = razdelenie = None
+                break
 
         if vybrannyy_muravey is not None:
             mozhet_atakovat_ryadom = (
@@ -2404,82 +2892,74 @@ while running:
             if tsel_ataki.zdorovie <= 0 or vybrannyy_muravey is None:
                 tsel_ataki = None
 
-    b_enabled = (
-        avtoboy is None
-        and event_popup is None
-        and okno_otryada is None
-        and kontekstnoe_menu is None
-        and razdelenie is None
-        and slivanie is None
-        and not redaktor
-        and all(not muravey.marshrut and muravey.vrag_dlya_boya is None for muravey in muravi)
-    )
-    has_unused_moves = any(
-        muravey.komanda == "igrok" and muravey.zdorovie > 0 and muravey.ostalos_hodov > 0
-        for muravey in muravi
-    )
 
+    hud.selected_group = vybrannyy_muravey if not redaktor else None
+    hud.editor = redaktor
+    hud.ready = (not redaktor and event_popup is None and not pending_event_triggers and avtoboy is None and slivanie is None and razdelenie is None
+                 and okno_otryada is None and kontekstnoe_menu is None
+                 and all(not m.marshrut and m.vrag_dlya_boya is None for m in muravi))
+    # Кнопка вызывает тот же обработчик N, а не отдельную логику завершения хода.
+    if hud.ready:
+        for i,event in enumerate(events):
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and end_turn_button.handle_click(event.pos, hud.ready):
+                events[i] = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_n)
+                end_turn_button.pressed = .12
     boy_zakryvalsya_v_etom_kadre = avtoboy is not None
-    popup_otkryt_v_etom_kadre = event_popup is not None
     okno_zakryto_v_etom_kadre = False
-    for event in pygame.event.get():
+    popup_otkryt_v_etom_kadre = event_popup is not None
+    for event in events:
         if event.type == pygame.QUIT:
             running = False
             continue
 
         if boy_zakryvalsya_v_etom_kadre:
             #ФИКС после клика «Вернуться» не пускаем на карту (если быстрый кадр):
+            # Даже после клика «Вернуться» остатки событий этого кадра не пускаем на карту.
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if avtoboy is not None and avtoboy.obrabotat_nazhatie(event.pos):
-                    if active_event_battle is not None:
-                        battle_tile = active_event_battle["tile"]
-                        battle_enemy = active_event_battle["enemy"]
-                        if avtoboy.itog["pobeditel"] == "igrok":
-                            battle_tile.event = None
-                            battle_tile.event_state = None
-                        else:
-                            # Отряд игрока погиб на этой клетке — меняем '?' на красный '!'
-                            battle_tile.event_state = "failed_battle"
-                            if battle_tile.event is not None:
-                                battle_tile.event["count"] = max(1, battle_enemy.kolichestvo)
-                        active_event_battle = None
+                    finish_event_battle()
                     avtoboy = None
                     vybrannyy_muravey = None
                     tsel_ataki = None
-                    selected_ant_house = None
             continue
 
         if popup_otkryt_v_etom_kadre:
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if event_popup is not None and event_popup.handle_click(event.pos):
+            if event_popup is not None and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if event_popup.handle_click(event.pos):
                     battle_data = event_popup.battle_data
                     event_popup = None
                     if battle_data is not None:
-                        event_enemy = Muravey(
-                            battle_data["enemy_type"],
-                            battle_data["tile"],
-                            "vrag",
-                            battle_data["count"]
-                        )
-                        if event_enemy.kolichestvo != battle_data["count"]:
-                            event_enemy.obnovit_sostav({battle_data["enemy_type"]: battle_data["count"]})
-                        active_event_battle = {
-                            "tile": battle_data["tile"],
-                            "enemy": event_enemy
-                        }
-                        avtoboy = Avtoboy(battle_data["player_ant"], event_enemy)
+                        start_event_battle(battle_data)
+            continue
+
+        # Колёсико и средняя кнопка управляют только картой, HUD и окна остаются на месте.
+        if event.type == pygame.MOUSEBUTTONUP and event.button == 2:
+            kamera_karty.peretaskivanie = False
+            continue
+        kamera_dostupna = okno_otryada is None and kontekstnoe_menu is None
+        if event.type == pygame.MOUSEWHEEL:
+            if kamera_dostupna and not hud.is_mouse_over(mouse_pos):
+                kamera_karty.izmenit_masshtab(event.y, mouse_pos)
+            continue
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 2:
+            kamera_karty.peretaskivanie = kamera_dostupna and not hud.is_mouse_over(event.pos)
+            continue
+        if event.type == pygame.MOUSEMOTION and kamera_karty.peretaskivanie:
+            if kamera_dostupna and event.buttons[1]:
+                kamera_karty.sdvinut(event.rel)
+            else:
+                kamera_karty.peretaskivanie = False
+            continue
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_HOME and kamera_dostupna:
+            kamera_karty.sbrosit()
             continue
 
         # На время объединения не даём второму отряду уйти с клетки.
         if slivanie is not None or okno_zakryto_v_etom_kadre:
             continue
 
-        if event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE, pygame.K_n, pygame.K_F2):
-            bylo_okno = okno_otryada is not None or kontekstnoe_menu is not None or razdelenie is not None
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_n, pygame.K_F2):
             kontekstnoe_menu = okno_otryada = razdelenie = None
-            if event.key == pygame.K_ESCAPE and bylo_okno:
-                okno_zakryto_v_etom_kadre = True
-                continue
 
         # Клики в окнах не должны ещё и двигать отряд на карте.
         if okno_otryada is not None:
@@ -2494,7 +2974,7 @@ while running:
                     okno_otryada = None
                     okno_zakryto_v_etom_kadre = True
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if okno_otryada.knopka.collidepoint(event.pos) or okno_otryada.krestik.collidepoint(event.pos):
+                if okno_otryada.knopka.collidepoint(event.pos):
                     okno_otryada = None
                     okno_zakryto_v_etom_kadre = True
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
@@ -2526,8 +3006,8 @@ while running:
                     razdelenie = None
                     okno_zakryto_v_etom_kadre = True
                 elif event.button == 1 and not hud.is_mouse_over(event.pos):
-                    kletka = hex_under_mouse(hex_grid, event.pos)
-                    if kletka is not None and razdelit_otryad(*razdelenie, kletka) is not None:
+                    kletka = hex_under_mouse(hex_grid,event.pos)
+                    if kletka is not None and razdelit_otryad(*razdelenie,kletka) is not None:
                         vybrannyy_muravey = razdelenie[0]
                         razdelenie = None
                         okno_zakryto_v_etom_kadre = True
@@ -2536,8 +3016,8 @@ while running:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_F2:
                 redaktor = not redaktor
-                hud.selected_tile = None
                 selected_ant_house = None
+                hud.selected_tile = None
                 vybrannyy_muravey = None
                 tsel_ataki = None
                 print("Редактор:", redaktor)
@@ -2556,33 +3036,31 @@ while running:
                     json.dump(dannye_karty, fail, ensure_ascii=False, indent=2)
                 print("Карта сохранена!")
 
-            if event.key == pygame.K_n and b_enabled:
-                next_turn()
+            if event.key == pygame.K_n and not redaktor:
+                if all(not muravey.marshrut and muravey.vrag_dlya_boya is None
+                       for muravey in muravi):
+                    next_turn()
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 3:
-                hud.selected_tile = None
                 selected_ant_house = None
+                hud.selected_tile = None
                 vybrannyy_muravey = None
                 tsel_ataki = None
                 if not redaktor and not hud.is_mouse_over(event.pos):
-                    otryad = nayti_otryad_na_kletke(hex_under_mouse(hex_grid, event.pos))
+                    otryad = nayti_otryad_na_kletke(hex_under_mouse(hex_grid,event.pos))
                     if otryad is not None and otryad.komanda == "igrok":
-                        kontekstnoe_menu = KontekstnoeMenu(event.pos, otryad)
+                        kontekstnoe_menu = KontekstnoeMenu(event.pos,otryad)
                 continue
 
             if event.button == 1 and not redaktor:
-                if end_turn_button.handle_click(event.pos, b_enabled):
-                    next_turn()
-                    continue
-
                 if hud.is_mouse_over(event.pos):
-                    if selected_ant_house is not None:
+                    if selected_ant_house is not None and hud.recruit_rect.collidepoint(event.pos):
                         for btn in hud.recruit_buttons:
                             if btn["rect"].collidepoint(event.pos):
                                 recruit_from_ant_house(selected_ant_house, btn["unit_type"])
                                 break
-
+                        continue
                     for tile in hud.tiles:
                         if tile["rect"].collidepoint(event.pos):
                             hud.selected_tile = tile
@@ -2598,6 +3076,7 @@ while running:
                     continue
 
                 #Выбрали постройку не дёргаем муравья:
+                # Если выбрали постройку, этот клик уже не должен двигать муравья.
                 if hud.selected_tile is not None:
                     building_type = hud.selected_tile["name"]
                     if can_place_building(kletka, building_type):
@@ -2605,7 +3084,12 @@ while running:
                         kletka.building = building
                         buildings.append(building)
                         hud.selected_tile = None
-                        selected_ant_house = None
+                    continue
+
+                selected_ant_house = None
+                if isinstance(kletka.building, Ant_House) and nayti_otryad_na_kletke(kletka) is None:
+                    selected_ant_house = kletka.building
+                    vybrannyy_muravey = tsel_ataki = None
                     continue
 
                 nazhatyy_muravey = None
@@ -2615,13 +3099,18 @@ while running:
                         break
 
                 if nazhatyy_muravey is not None:
-                    selected_ant_house = None
                     if nazhatyy_muravey.komanda == "igrok":
+                        if (kletka.event_state == "failed_battle" and not nazhatyy_muravey.marshrut
+                                and not nazhatyy_muravey.atakoval_v_etom_hodu):
+                            pending_event_triggers.append((nazhatyy_muravey,kletka))
+                            process_pending_events()
+                            popup_otkryt_v_etom_kadre = True
+                            continue
                         tsel_ataki = None
                         if (vybrannyy_muravey is not None and vybrannyy_muravey is not nazhatyy_muravey
                                 and mozhno_upravlyat(vybrannyy_muravey) and mozhno_upravlyat(nazhatyy_muravey)
                                 and vybrannyy_muravey.kletka.is_has_neighbor(nazhatyy_muravey.kletka)):
-                            kontekstnoe_menu = KontekstnoeMenu(event.pos, vybrannyy_muravey, nazhatyy_muravey)
+                            kontekstnoe_menu = KontekstnoeMenu(event.pos,vybrannyy_muravey,nazhatyy_muravey)
                             continue
                         mozhet_atakovat = (
                             not nazhatyy_muravey.atakoval_v_etom_hodu
@@ -2657,26 +3146,18 @@ while running:
                                     kletka_podhoda
                                 )
                             if uspeshno:
+                                # Подход оплачиваем, а сама атака очки движения не забирает.
                                 vybrannyy_muravey.vrag_dlya_boya = nazhatyy_muravey
                                 vybrannyy_muravey.atakoval_v_etom_hodu = True
                                 vybrannyy_muravey = None
                             tsel_ataki = None
-                elif kletka.building is not None and kletka.building.name == "ant_house":
-                    selected_ant_house = kletka.building
-                    vybrannyy_muravey = None
-                    tsel_ataki = None
                 else:
-                    selected_ant_house = None
                     tsel_ataki = None
                     if vybrannyy_muravey is not None:
                         vybrannyy_muravey.peremestitsya(kletka)
 
-    if (hud.is_mouse_over(mouse_pos)
-            or end_turn_button.is_hovered(mouse_pos)
-            or avtoboy is not None
-            or event_popup is not None
-            or okno_otryada is not None
-            or kontekstnoe_menu is not None):
+    hud.selected_group = vybrannyy_muravey if not redaktor else None
+    if event_popup is not None or kamera_karty.peretaskivanie or hud.is_mouse_over(mouse_pos) or avtoboy is not None or okno_otryada is not None or kontekstnoe_menu is not None:
         hovered_tile = None
     else:
         hovered_tile = hex_under_mouse(hex_grid)
@@ -2686,27 +3167,51 @@ while running:
         koord = (hovered_tile.col, hovered_tile.row)
         provintsii_kletok[koord] = tip_kisti
 
-    screen.fill((128, 128, 128))
-    screen.blit(scaled_map_img, (0, 0))
+    karta_sloy.fill((128, 128, 128))
+    karta_sloy.blit(stonewall1_img, (x, 500))
+    karta_sloy.blit(scaled_map_img, (0, 0))
 
+    if avtoboy is None and event_popup is None:
+        vremya_oblakov += delta_time
+
+    for i,(w,h,speed,y) in enumerate(((620,260,11,190),(480,200,17,480),(710,280,8,740),(390,180,22,360))):
+        px = ((vremya_oblakov*speed+250+i*540) % (karta_sloy.get_width()+w))-w//2
+        narisovat_oblako(karta_sloy,(round(px),y),w,h,i)
     setka_sloy.fill((0, 0, 0, 0))
-    if razdelenie is not None and avtoboy is None and event_popup is None:
+    for tile in hex_grid.values():
+        if tile.build_unlocked and tile.building is None:
+            pygame.draw.polygon(setka_sloy,(139,202,104,75),tile.table_points)
+    marshrut_predprosmotra = None
+    znachki_ataki = []
+    tekuschee_vydelenie = (vybrannyy_muravey, razdelenie is not None)
+    if tekuschee_vydelenie != poslednee_vydelenie:
+        podsvetka_vremya = 0.0
+        poslednee_vydelenie = tekuschee_vydelenie
+    podsvetka_vremya = min(1,podsvetka_vremya+delta_time/.12)
+    alfa_vydeleniya = podsvetka_vremya
+    if razdelenie is not None and avtoboy is None:
         otryad, sostav = razdelenie
-        dostupnye, _ = dostupnye_dlya_razdeleniya(otryad, sostav)
+        dostupnye, otkuda = dostupnye_dlya_razdeleniya(otryad,sostav)
+        if hovered_tile is not None:
+            marshrut_predprosmotra = (otryad,(hovered_tile.col,hovered_tile.row),dostupnye,otkuda)
         for koord in dostupnye:
-            pygame.draw.polygon(setka_sloy, (40, 200, 75, 85), hex_grid[koord].table_points)
-        pygame.draw.polygon(setka_sloy, (255, 215, 0, 110), otryad.kletka.table_points)
-    elif not redaktor and vybrannyy_muravey is not None and avtoboy is None and event_popup is None:
+            pygame.draw.polygon(setka_sloy,(40,200,75,round(85*alfa_vydeleniya)),hex_grid[koord].table_points)
+        pygame.draw.polygon(setka_sloy,(255,215,0,round(110*alfa_vydeleniya)),otryad.kletka.table_points)
+    elif not redaktor and vybrannyy_muravey is not None and avtoboy is None:
         if vybrannyy_muravey.zdorovie > 0 and not vybrannyy_muravey.marshrut:
             dostupnye = {}
+            otkuda = {}
             if vybrannyy_muravey.ostalos_hodov > 0:
-                dostupnye, _ = nayti_dostupnye_kletki(vybrannyy_muravey)
+                dostupnye, otkuda = nayti_dostupnye_kletki(vybrannyy_muravey)
+                if hovered_tile is not None:
+                    marshrut_predprosmotra = (vybrannyy_muravey,(hovered_tile.col,hovered_tile.row),dostupnye,otkuda)
                 for koord in dostupnye:
                     pygame.draw.polygon(
-                        setka_sloy, (40, 200, 75, 85), hex_grid[koord].table_points
+                        setka_sloy, (40, 200, 75, round(85*alfa_vydeleniya)), hex_grid[koord].table_points
                     )
 
             #Подсветка врагов:
+            # Враги подсвечиваются сами, если до них можно дойти и напасть.
             if not vybrannyy_muravey.atakoval_v_etom_hodu:
                 for vrag in muravi:
                     if (vrag.komanda != vybrannyy_muravey.komanda
@@ -2715,11 +3220,15 @@ while running:
                                 vybrannyy_muravey, vrag, dostupnye
                             ) is not None):
                         pygame.draw.polygon(
-                            setka_sloy, (225, 45, 45, 85), vrag.kletka.table_points
+                            setka_sloy, (225, 45, 45, round(85*alfa_vydeleniya)), vrag.kletka.table_points
                         )
+                        znachki_ataki.append(vrag.kletka.center)
+                        if hovered_tile is vrag.kletka:
+                            podhod = nayti_podhod_k_vragu(vybrannyy_muravey,vrag,dostupnye)
+                            marshrut_predprosmotra = (vybrannyy_muravey,(podhod.col,podhod.row),dostupnye,otkuda)
 
             pygame.draw.polygon(
-                setka_sloy, (255, 215, 0, 110),
+                setka_sloy, (255, 215, 0, round(110*alfa_vydeleniya)),
                 vybrannyy_muravey.kletka.table_points
             )
 
@@ -2730,24 +3239,32 @@ while running:
                     setka_sloy, cveta_tipov[tip], hex_grid[koord].table_points
                 )
 
-    for tile in hex_grid.values():
-        tile.draw(setka_sloy, color=(200, 200, 200, 90), thick=3)
-
+    karta_sloy.blit(setka_sloy, (0, 0))
+    karta_sloy.blit(setka_redaktor if redaktor else setka_obych,(0,0))
+    # Ивенты оставляем живыми, а саму сетку рисуем из кеша.
+    draw_tile_markers(karta_sloy)
     if hovered_tile is not None:
-        hovered_tile.draw(setka_sloy, color=(255, 255, 0, 180), thick=6)
-
-    screen.blit(setka_sloy, (0, 0))
-
-    draw_tile_markers(screen)
-
-    if selected_ant_house is not None:
-        pygame.draw.polygon(screen, (255, 220, 80), selected_ant_house.tile.table_points, 3)
-
+        if redaktor:
+            hovered_tile.draw(karta_sloy,color=(255,255,0),thick=3)
+        else:
+            setka_sloy.fill((0,0,0,0))
+            pygame.draw.polygon(setka_sloy,(255,239,177,38),hovered_tile.table_points)
+            karta_sloy.blit(setka_sloy,(0,0))
+    for p in znachki_ataki:
+        nadpis_na_okne(karta_sloy,"!",(round(p.x)-18,round(p.y)-14),14,(255,239,177),"center")
+    if marshrut_predprosmotra is not None:
+        narisovat_marshrut(karta_sloy,*marshrut_predprosmotra)
     for building in buildings:
-        building.draw(screen)
+        narisovat_ten(karta_sloy, building.rect.center, building.rect.width*1.25, building.rect.height*.8)
+    for muravey in muravi:
+        if muravey.zdorovie > 0:
+            razmer = units[muravey.tip]["razmer_na_karte"]
+            narisovat_ten(karta_sloy,tuple(muravey.pozitsiya),razmer*.9,razmer*.65)
+    for building in buildings:
+        building.draw(karta_sloy)
 
     for muravey in muravi:
-        muravey.narisovat(screen)
+        muravey.narisovat(karta_sloy)
 
     if avtoboy is None and event_popup is None:
         for effekt in effekty_smerti[:]:
@@ -2764,12 +3281,14 @@ while running:
                 alfa = int(255 * (1 - (vremya - 1.4) / 1.6))
 
             kartinka = effekt["kartinka"].copy()
-            kartinka.set_alpha(min(255, int(255 * (3.0 - vremya) / 1.6)))
-            screen.blit(kartinka, kartinka.get_rect(center=effekt["pozitsiya"]))
+            kartinka.set_alpha(min(255, int(255 * (3.0-vremya)/1.6)))
+            karta_sloy.blit(kartinka, kartinka.get_rect(center=effekt["pozitsiya"]))
             nadpis = tekst_smerti.copy()
             nadpis.set_alpha(alfa)
             mesto = nadpis.get_rect(center=effekt["pozitsiya"])
-            screen.blit(nadpis, mesto)
+            karta_sloy.blit(nadpis, mesto)
+
+    test_button = TestButton("КЛИК НА МЕНЯ", 250, 250, True)
 
     if hud.selected_tile is not None and hovered_tile is not None and not redaktor:
         building_type = hud.selected_tile["name"]
@@ -2779,36 +3298,49 @@ while running:
         )
         preview_img.set_alpha(160)
         preview_rect = preview_img.get_rect(center=hovered_tile.center)
-        screen.blit(preview_img, preview_rect)
+        karta_sloy.blit(preview_img, preview_rect)
 
         can_build = can_place_building(hovered_tile, building_type)
         border_color = (50, 255, 50) if can_build else (255, 60, 60)
-        hovered_tile.draw(screen, color=border_color, thick=4)
+        hovered_tile.draw(karta_sloy, color=border_color, thick=1)
+
+    kamera_karty.narisovat(screen, karta_sloy)
 
     unit_count = sum(unit.poluchit_yacheyki() for unit in muravi if unit.komanda == "igrok" and unit.zdorovie > 0)
     max_units = sum(building.unit_slots for building in buildings)
-    hud.draw(screen, unit_count, max_units, turn_number, selected_ant_house)
-
-    if not redaktor:
-        end_turn_button.draw(screen, turn_number, b_enabled, has_unused_moves)
+    hud.draw(screen, unit_count, max_units)
 
     if razdelenie is not None:
-        rect = pygame.Rect(0, 0, 650, 38)
-        rect.midtop = (screen.get_width() // 2, 44)
-        pygame.draw.rect(screen, (41, 56, 44), rect)
-        nadpis_na_okne(screen, "Выберите клетку для отделённого отряда", rect.center, 18, vyrovnyat="center")
+        rect = pygame.Rect(0,0,650,38)
+        rect.midtop = (screen.get_width()//2,44)
+        pygame.draw.rect(screen,(41,56,44),rect)
+        nadpis_na_okne(screen,"Выберите клетку для отделённого отряда",rect.center,18,vyrovnyat="center")
     if kontekstnoe_menu is not None:
         kontekstnoe_menu.narisovat(screen)
+    if okno_otryada is not poslednee_okno:
+        vremya_okna = 0.0
+        poslednee_okno = okno_otryada
     if okno_otryada is not None:
+        vremya_okna = min(1,vremya_okna+delta_time/.12)
+        fon_do_okna = screen.copy() if vremya_okna < 1 else None
         okno_otryada.narisovat(screen)
+        if fon_do_okna is not None:
+            fon_do_okna.set_alpha(round(255*(1-vremya_okna)))
+            screen.blit(fon_do_okna,(0,0))
 
     #Окно битвы:
+    # Окно битвы.
     if avtoboy is not None:
         avtoboy.narisovat(screen)
-
     #Окно ивента:
     if event_popup is not None:
         event_popup.draw(screen)
+
+    """#МЫШКА:
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            print("КЛИК")
+        if event.type == pygame.MOUSEBUTTONUP:
+            print("КЛИК КОНЧИЛСЯ")"""
 
     pygame.display.update() #чтобы показывалось изображение
 
