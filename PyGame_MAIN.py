@@ -3,7 +3,7 @@ import os #нужен чтобы папка не потерялась внутр
 import random
 import math
 import json
-
+import heapq
 
 
 pygame.init()
@@ -237,6 +237,7 @@ class Muravey:
         pelmeshki.nazvanie = dannye["nazvanie"]
         pelmeshki.zdorovie = dannye["zdorovie"]
         pelmeshki.prohodimost = dannye["prohodimost"]
+        pelmeshki.ostalos_hodov = pelmeshki.prohodimost
         pelmeshki.uron = dannye["uron"]
         pelmeshki.bronya = dannye.get("bronya", 0)
         pelmeshki.kletka = kletka
@@ -255,17 +256,20 @@ class Muravey:
         if novaya_kletka is None:
             return False
 
-        if not pelmeshki.kletka.is_has_neighbor(novaya_kletka):
+        koord = (novaya_kletka.col, novaya_kletka.row)
+
+        dostupnye, otkuda = nayti_dostupnye_kletki(pelmeshki)
+
+        if koord not in dostupnye:
             return False
 
-        koord = (novaya_kletka.col, novaya_kletka.row)
+        stoimost = dostupnye[koord]
+
+        pelmeshki.ostalos_hodov -= stoimost
+        pelmeshki.kletka = novaya_kletka
+
         tip = provintsii_kletok[koord]
         svoystva = tipy_provintsiy[tip]
-
-        if not svoystva.get("prohodima", True):
-            return False
-
-        pelmeshki.kletka = novaya_kletka
 
         if svoystva.get("smertelna", False):
             pelmeshki.zdorovie = 0
@@ -353,12 +357,86 @@ def hex_under_mouse(grid):
         return closest_hex
     return None
 
+def nayti_sosedey(kletka, hex_grid):
+    col = kletka.col
+    row = kletka.row
+
+    if col % 2 == 0:
+        sdvigi = [-1, 0]
+    else:
+        sdvigi = [0, 1]
+
+    koordinaty = [
+        (col, row - 1),
+        (col, row + 1),
+        (col - 1, row + sdvigi[0]),
+        (col - 1, row + sdvigi[1]),
+        (col + 1, row + sdvigi[0]),
+        (col + 1, row + sdvigi[1])
+    ]
+
+    return [
+        hex_grid[koord]
+        for koord in koordinaty
+        if koord in hex_grid
+    ]
+
+def nayti_dostupnye_kletki(muravey):
+    nachalo = (muravey.kletka.col, muravey.kletka.row)
+
+    ochered = [(0, nachalo)]
+    rashody = {nachalo: 0}
+    otkuda = {}
+
+    zanyatye = {
+        (drugoy.kletka.col, drugoy.kletka.row)
+        for drugoy in muravi
+        if drugoy is not muravey and drugoy.zdorovie > 0
+    }
+
+    while ochered:
+        rashod, koord = heapq.heappop(ochered)
+
+        if rashod > rashody[koord]:
+            continue
+
+        if koord != nachalo:
+            tip = provintsii_kletok[koord]
+            if tipy_provintsiy[tip].get("smertelna", False):
+                continue
+
+        for sosed in nayti_sosedey(hex_grid[koord], hex_grid):
+            novye_koord = (sosed.col, sosed.row)
+
+            if novye_koord in zanyatye:
+                continue
+
+            tip = provintsii_kletok[novye_koord]
+            svoystva = tipy_provintsiy[tip]
+
+            if not svoystva.get("prohodima", True):
+                continue
+
+            cena = svoystva["stoimost"]
+
+            if cena is None or cena < 0:
+                continue
+
+            novyy_rashod = rashod + cena
+
+            if novyy_rashod > muravey.ostalos_hodov:
+                continue
+
+            if novyy_rashod < rashody.get(novye_koord, float("inf")):
+                rashody[novye_koord] = novyy_rashod
+                otkuda[novye_koord] = koord
+                heapq.heappush(ochered, (novyy_rashod, novye_koord))
+
+    rashody.pop(nachalo)
+    return rashody, otkuda
+
 """Инициализация:"""
 hex_grid = create_hex_grid(HEX_GRID_WIDTH, HEX_GRID_HEIGHT, HEX_GRID_RADIUS)
-
-provintsii_kletok = {
-    koord: "polya" for koord in hex_grid
-}
 
 put_karty = os.path.join(data_dir, "karta_provintsiy.json")
 
@@ -431,7 +509,12 @@ while running:
     x += 50 * delta_time
     
     mouse_pos = pygame.mouse.get_pos()
-    
+
+    if vybrannyy_muravey is not None:
+        if (vybrannyy_muravey.ostalos_hodov <= 0
+                or vybrannyy_muravey.zdorovie <= 0):
+            vybrannyy_muravey = None
+
     screen.fill((128, 128, 128)) 
     screen.blit(stonewall1_img, (x, 500))
     screen.blit(scaled_map_img, (0,0))
@@ -447,6 +530,19 @@ while running:
             provintsii_kletok[koord] = tip_kisti
 
     setka_sloy.fill((0, 0, 0, 0))
+
+    if not redaktor and vybrannyy_muravey is not None:
+        if vybrannyy_muravey.zdorovie > 0:
+            dostupnye, otkuda = nayti_dostupnye_kletki(vybrannyy_muravey)
+
+            for koord in dostupnye:
+                kletka = hex_grid[koord]
+
+                pygame.draw.polygon(
+                    setka_sloy,
+                    (40, 200, 75, 85),
+                    kletka.table_points
+                )
 
     if redaktor:
         for koord, tip in provintsii_kletok.items():
@@ -466,6 +562,14 @@ while running:
 
     if hovered_tile is not None:
         hovered_tile.draw(setka_sloy, color=(255, 255, 0, 180), thick=6)
+
+    if not redaktor and vybrannyy_muravey is not None:
+        if vybrannyy_muravey.zdorovie > 0:
+            pygame.draw.polygon(
+                setka_sloy,
+                (255, 215, 0, 110),
+                vybrannyy_muravey.kletka.table_points
+            )
 
     screen.blit(setka_sloy, (0, 0))
 
@@ -505,7 +609,17 @@ while running:
 
                 print("Карта сохранена!")
 
+            if event.key == pygame.K_n and not redaktor:
+                for muravey in muravi:
+                    if muravey.zdorovie > 0:
+                        muravey.ostalos_hodov = muravey.prohodimost
+
+                print("Новый ход!")
+
         if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 3:
+                vybrannyy_muravey = None
+
             if event.button == 1 and not hud.is_mouse_over(mouse_pos) and not redaktor:
                 kletka = hex_under_mouse(hex_grid)
 
@@ -518,11 +632,14 @@ while running:
                             break
 
                     if nazhatyy_muravey is not None:
-                        vybrannyy_muravey = nazhatyy_muravey
-    
+                        if nazhatyy_muravey.ostalos_hodov > 0:
+                            vybrannyy_muravey = nazhatyy_muravey
+                        else:
+                            vybrannyy_muravey = None
+
                     elif vybrannyy_muravey is not None:
                         vybrannyy_muravey.peremestitsya(kletka)
-    
+
     if hud.selected_tile is not None and hovered_tile is not None:
         preview_img = hud.selected_tile["icon"].copy()
         preview_img.set_alpha(160)  # делаем чуть полупрозрачным
