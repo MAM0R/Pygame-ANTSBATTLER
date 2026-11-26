@@ -333,6 +333,405 @@ class TestButton:
 
 
 
+class ZagruzchikAtlasov:
+    def __init__(self):
+        self.atlasy = {}
+        self.ishodnye = {}
+        self.kesh = {}
+        for tip in units:
+            self.podgotovit_tip(tip)
+
+    def zagruzit_atlas(self, imya, shirina, vysota):
+        kluch = (imya, shirina, vysota)
+        if kluch not in self.atlasy:
+            atlas = pygame.image.load(os.path.join(textures_dir, "Units", imya)).convert_alpha()
+            if atlas.get_width() % shirina or atlas.get_height() % vysota:
+                raise ValueError(f"Неправильный размер атласа {imya}")
+            self.atlasy[kluch] = atlas
+        return self.atlasy[kluch]
+
+    def poluchit_kadr(self, atlas, shirina, vysota, koordinaty):
+        col, row = koordinaty
+        return atlas.subsurface((col * shirina, row * vysota, shirina, vysota)).copy()
+
+    def podgotovit_tip(self, tip):
+        dannye = units[tip]
+        if not dannye.get("tekstura"):
+            # Это пока затычка для богомола, отдельного атласа для него нет.
+            kadr = kadry_muravya[0]
+            trup = pygame.transform.rotate(kadr, 180)
+            trup.fill((135, 135, 135, 255), special_flags=pygame.BLEND_RGBA_MULT)
+            telo = {"pokoy": [kadr], "hodba": list(kadry_muravya),
+                    "ataka": [kadr], "smert": [trup]}
+            w, h = kadr.get_size()
+        else:
+            w, h = dannye["shirina_kadra"], dannye["vysota_kadra"]
+            atlas = self.zagruzit_atlas(dannye["tekstura"], w, h)
+            telo = {imya: [self.poluchit_kadr(atlas, w, h, koord)
+                           for koord in opisanie["kadry"]]
+                    for imya, opisanie in dannye["animatsii"].items()}
+
+        # Центр у всех кадров один, в том числе у тела с усиками.
+        razmer = (w * 2, h * 2)
+        tsentr = (w, h)
+        def polozhit(kadr, tocka):
+            sloy = pygame.Surface(razmer, pygame.SRCALPHA)
+            sloy.blit(kadr, kadr.get_rect(center=tocka))
+            return sloy
+        telo = {imya: [polozhit(kadr, tsentr) for kadr in kadry]
+                for imya, kadry in telo.items()}
+        usiki = []
+        if dannye.get("usiki"):
+            u = dannye["usiki"]
+            atlas = self.zagruzit_atlas(u["tekstura"], u["shirina_kadra"], u["vysota_kadra"])
+            for koord in u["kadry"]:
+                kadr = self.poluchit_kadr(atlas, u["shirina_kadra"], u["vysota_kadra"], koord)
+                kadr = pygame.transform.scale(kadr, (round(w * u["shirina"]), round(h * u["vysota"])))
+                usiki.append(polozhit(kadr, (w, round(h + h * u["sdvig_y"]))))
+        granitsy = [kadr.get_bounding_rect() for kadry in telo.values() for kadr in kadry] + [k.get_bounding_rect() for k in usiki]
+        granitsy = [r for r in granitsy if r.width and r.height]
+        rx = max(max(w - r.left, r.right - w) for r in granitsy)
+        ry = max(max(h - r.top, r.bottom - h) for r in granitsy)
+        oblast = pygame.Rect(w-rx, h-ry, rx*2, ry*2)
+        self.ishodnye[tip] = ({imya: [k.subsurface(oblast).copy() for k in kadry]
+                               for imya, kadry in telo.items()},
+                              [k.subsurface(oblast).copy() for k in usiki])
+
+    def poluchit_animatsiyu(self, tip, komanda, razmer):
+        cvet = tuple(cveta_koloniy.get(komanda, (255, 255, 255))) if units[tip].get("okrashivanie") else (255, 255, 255)
+        kluch = (tip, cvet, razmer)
+        if kluch not in self.kesh:
+            telo, usiki = self.ishodnye[tip]
+            w, h = telo["pokoy"][0].get_size()
+            koeff = razmer / max(w, h)
+            razmery = (max(1, round(w*koeff)), max(1, round(h*koeff)))
+            def obrabotat(kadr):
+                kadr = pygame.transform.smoothscale(kadr, razmery)
+                if cvet != (255, 255, 255):
+                    kadr.fill((*cvet, 255), special_flags=pygame.BLEND_RGBA_MULT)
+                return kadr
+            self.kesh[kluch] = ({imya: [obrabotat(k) for k in kadry]
+                                 for imya, kadry in telo.items()},
+                                [obrabotat(k) for k in usiki])
+        return self.kesh[kluch]
+
+
+class Animatsiya:
+    def __init__(self, tip, komanda, razmer):
+        self.tip = tip
+        self.kadry, self.usiki = zagruzchik_atlasov.poluchit_animatsiyu(tip, komanda, razmer)
+        self.sostoyanie = "pokoy"
+        self.vremya = random.random()
+        self.vremya_usikov = random.random()
+        parametry_usikov = units[tip].get("usiki") or {}
+        self.skorost_usikov = random.uniform(parametry_usikov.get("fps_min", 8), parametry_usikov.get("fps_max", 16))
+        self.vspyshka = 0.0
+
+    def ustanovit(self, sostoyanie):
+        if self.sostoyanie != sostoyanie:
+            self.sostoyanie = sostoyanie
+            self.vremya = random.random() if sostoyanie == "hodba" else 0.0
+
+    def obnovit(self, delta_time):
+        self.vremya += delta_time
+        if self.usiki and self.sostoyanie != "smert":
+            self.vremya_usikov += delta_time
+            if self.vremya_usikov * self.skorost_usikov >= len(self.usiki):
+                self.vremya_usikov %= len(self.usiki) / self.skorost_usikov
+                parametry = units[self.tip]["usiki"]
+                self.skorost_usikov = random.uniform(parametry["fps_min"], parametry["fps_max"])
+        self.vspyshka = max(0, self.vspyshka - delta_time)
+
+    def dlitelnost_ataki(self):
+        return len(self.kadry["ataka"]) / units[self.tip]["animatsii"]["ataka"]["fps"]
+
+    def kartinka(self, ugol):
+        kadry = self.kadry[self.sostoyanie]
+        fps = units[self.tip]["animatsii"][self.sostoyanie]["fps"]
+        nomer = int(self.vremya * fps)
+        nomer = min(nomer, len(kadry)-1) if self.sostoyanie == "ataka" else nomer % len(kadry)
+        kadr = kadry[nomer]
+        if self.usiki and self.sostoyanie != "smert":
+            kadr = kadr.copy()
+            kadr.blit(self.usiki[int(self.vremya_usikov*self.skorost_usikov) % len(self.usiki)], (0, 0))
+        if self.vspyshka > 0 and self.sostoyanie != "smert":
+            kadr = kadr.copy()
+            kadr.fill((135, 135, 135), special_flags=pygame.BLEND_RGB_ADD)
+        return pygame.transform.rotate(kadr, ugol)
+
+
+class Boets:
+    def __init__(self, gruppa, pozitsiya, razmer, nomer, storona):
+        self.tip = gruppa.tip
+        self.komanda = gruppa.komanda
+        self.storona = storona
+        self.nomer = nomer
+        self.pozitsiya = pygame.math.Vector2(pozitsiya)
+        self.ugol = -90 if storona == 0 else 90
+        self.radius = razmer * units[self.tip].get("radius_boya", 0.28)
+        self.dalnost = max(3, razmer * 0.20)
+        self.skorost = units[self.tip].get("skorost_boya", 115) * random.uniform(.85, 1.15)
+        self.animatsiya = Animatsiya(self.tip, self.komanda, razmer)
+        self.zhiv = True
+        self.tsel = None
+        self.tsel_udara = None
+        self.vremya_ataki = 0.0
+        self.pauza = random.uniform(0, .25)
+        self.udary = 0
+        self.mesto_ataki = None
+        self.perevybor = 0.0
+        self.zaderzhka = random.uniform(0, .3)
+
+    def povernut(self, napravlenie):
+        if napravlenie.length_squared() > .001:
+            self.ugol = math.degrees(math.atan2(-napravlenie.y, napravlenie.x)) - 90
+
+    def umeret(self):
+        self.zhiv = False
+        self.tsel = None
+        self.tsel_udara = None
+        self.animatsiya.ustanovit("smert")
+
+    def narisovat(self, poverhnost):
+        kartinka = self.animatsiya.kartinka(self.ugol)
+        pozitsiya = self.pozitsiya
+        if not units[self.tip].get("tekstura") and self.tsel_udara is not None and self.zhiv:
+            # У старого спрайта удара нет, поэтому немного двигаем тело вперёд.
+            vektor = self.tsel_udara.pozitsiya - pozitsiya
+            if vektor.length_squared() > .01:
+                pozitsiya = pozitsiya + vektor.normalize() * 5 * math.sin(math.pi * min(1, self.vremya_ataki / self.animatsiya.dlitelnost_ataki()))
+        poverhnost.blit(kartinka, kartinka.get_rect(center=(round(pozitsiya.x), round(pozitsiya.y))))
+
+
+class BoevoyII:
+    def __init__(self, arena, levyy, pravyy, itog):
+        self.arena = arena
+        self.boitsy = []
+        self.po_storonam = [[], []]
+        self.ostalos = [itog["do_levogo"], itog["do_pravogo"]]
+        self.vyzhivet = [itog["posle_levogo"], itog["posle_pravogo"]]
+        self.poteri = [self.ostalos[i] - self.vyzhivet[i] for i in range(2)]
+        self.vremya = 0.0
+        self.nachalo_udarov = None
+        self.zakonchen = False
+        self.avarijno = False
+        self.shag = 1/60
+        self.nakopleno = 0.0
+        for storona, gruppa in enumerate((levyy, pravyy)):
+            self.sozdat_boytsov(gruppa, storona)
+
+    def sozdat_boytsov(self, gruppa, storona):
+        n = gruppa.kolichestvo
+        stolbtsy = max(1, math.ceil(math.sqrt(n * 1.45)))
+        ryady = math.ceil(n / stolbtsy)
+        interval = min((self.arena.width * .37 - 18) / stolbtsy, (self.arena.height - 24) / ryady)
+        razmer = min(units[gruppa.tip]["razmer_v_boyu"], max(5, int(interval * .92)))
+        shag = min(interval, max(razmer * .95, 17))
+        x = self.arena.left + 18 if storona == 0 else self.arena.right - 18
+        znak = 1 if storona == 0 else -1
+        for i in range(n):
+            col, row = i % stolbtsy, i // stolbtsy
+            p = (x + znak * (razmer/2 + col * shag), self.arena.centery + (row-(ryady-1)/2)*shag)
+            boets = Boets(gruppa, p, razmer, len(self.boitsy), storona)
+            self.boitsy.append(boets)
+            self.po_storonam[storona].append(boets)
+            self.ogranichit(boets)
+
+    def ogranichit(self, boets):
+        r = boets.radius
+        boets.pozitsiya.x = max(self.arena.left+r, min(self.arena.right-r, boets.pozitsiya.x))
+        boets.pozitsiya.y = max(self.arena.top+r, min(self.arena.bottom-r, boets.pozitsiya.y))
+
+    def nayti_tsel(self, boets, vragi, nagruzka):
+        if not vragi:
+            return None
+        return min(vragi, key=lambda vrag: boets.pozitsiya.distance_to(vrag.pozitsiya) + nagruzka.get(vrag, 0) * boets.radius * 1.4)
+
+    def nayti_mesto_ataki(self, boets, tsel, zanyatye):
+        radius = boets.radius + tsel.radius + boets.dalnost * .65
+        vektor = boets.pozitsiya - tsel.pozitsiya
+        ugol = math.atan2(vektor.y, vektor.x)
+        varianty = []
+        for i in range(16):
+            a = ugol + i * math.tau / 16
+            p = tsel.pozitsiya + pygame.math.Vector2(math.cos(a), math.sin(a)) * radius
+            if not (self.arena.left+boets.radius <= p.x <= self.arena.right-boets.radius and self.arena.top+boets.radius <= p.y <= self.arena.bottom-boets.radius):
+                continue
+            tsena = boets.pozitsiya.distance_to(p)
+            for drugoy, mesto in zanyatye:
+                if drugoy is boets:
+                    continue
+                peresechenie = boets.radius + drugoy.radius - mesto.distance_to(p)
+                if peresechenie > 0:
+                    tsena += 5 * peresechenie + 12
+            varianty.append((tsena, a))
+        return min(varianty)[1] if varianty else ugol
+
+    def rastolknut(self, zhivye):
+        if not zhivye:
+            return
+        razmer_kletki = max(8, 2 * max(b.radius for b in zhivye))
+        # В большой битве проверяем соседние клетки, а не все пары на арене.
+        for _ in range(2):
+            setka = {}
+            for b in zhivye:
+                koord = (int(b.pozitsiya.x//razmer_kletki), int(b.pozitsiya.y//razmer_kletki))
+                setka.setdefault(koord, []).append(b)
+            for (x,y), spisok in setka.items():
+                for b in spisok:
+                    for dx in (-1,0,1):
+                        for dy in (-1,0,1):
+                            for drugoy in setka.get((x+dx,y+dy), ()):
+                                if drugoy.nomer <= b.nomer:
+                                    continue
+                                v = drugoy.pozitsiya-b.pozitsiya
+                                min_dist = b.radius+drugoy.radius
+                                kv = v.length_squared()
+                                if kv >= min_dist*min_dist:
+                                    continue
+                                dist = math.sqrt(kv)
+                                napravlenie = v/dist if dist > .0001 else pygame.math.Vector2(1,0).rotate(b.nomer*137)
+                                sdvig = napravlenie * (min_dist-dist+.02)
+                                massa_b, massa_d = b.radius**2, drugoy.radius**2
+                                b.pozitsiya -= sdvig * (massa_d/(massa_b+massa_d))
+                                drugoy.pozitsiya += sdvig * (massa_b/(massa_b+massa_d))
+                                self.ogranichit(b)
+                                self.ogranichit(drugoy)
+
+    def udar(self, boets, tsel):
+        if not tsel.zhiv or not boets.zhiv:
+            return
+        if boets.pozitsiya.distance_to(tsel.pozitsiya) > boets.radius+tsel.radius+boets.dalnost+4:
+            return
+        if self.nachalo_udarov is None:
+            self.nachalo_udarov = self.vremya
+        tsel.animatsiya.vspyshka = .09
+        tsel.udary += 1
+        storona = tsel.storona
+        if self.ostalos[storona] <= self.vyzhivet[storona]:
+            return
+        # Потери считаются заранее, удар только решает, кто именно погибнет.
+        proshlo = self.vremya - self.nachalo_udarov
+        razresheno = min(self.poteri[storona], 1+int(self.poteri[storona]*proshlo/5.5))
+        if self.poteri[storona] - (self.ostalos[storona]-self.vyzhivet[storona]) >= razresheno:
+            return
+        drugaya = 1-storona
+        # Не даём одной армии исчезнуть слишком рано, иначе последнему бойцу
+        # придётся в одиночку добивать десятки противников.
+        if self.poteri[drugaya]:
+            pogiblo = self.poteri[storona] - (self.ostalos[storona]-self.vyzhivet[storona])
+            pogiblo_drugih = self.poteri[drugaya] - (self.ostalos[drugaya]-self.vyzhivet[drugaya])
+            dopusk = max(.06, 1/self.poteri[storona], 1/self.poteri[drugaya])
+            if (pogiblo+1)/self.poteri[storona] > pogiblo_drugih/self.poteri[drugaya]+dopusk+.00001:
+                return
+        if self.ostalos[storona] == 1 and self.ostalos[drugaya] > self.vyzhivet[drugaya]:
+            if self.vyzhivet == [0,0] and self.ostalos == [1,1]:
+                self.ubit(boets)
+            else:
+                return
+        self.ubit(tsel)
+
+    def ubit(self, boets):
+        if boets.zhiv:
+            boets.umeret()
+            self.ostalos[boets.storona] -= 1
+
+    def obnovit(self, delta_time):
+        self.nakopleno += delta_time
+        while self.nakopleno >= self.shag and not self.zakonchen:
+            self.nakopleno -= self.shag
+            self.shag_boya(self.shag)
+
+    def shag_boya(self, dt):
+        self.vremya += dt
+        zhivye = [b for b in self.boitsy if b.zhiv]
+        vragi = [[b for b in spisok if b.zhiv] for spisok in self.po_storonam]
+        nagruzka = {}
+        mesta = {}
+        for b in zhivye:
+            if b.tsel is not None and b.tsel.zhiv:
+                nagruzka[b.tsel] = nagruzka.get(b.tsel, 0)+1
+                if b.mesto_ataki is not None:
+                    r = b.radius+b.tsel.radius+b.dalnost*.65
+                    a = b.mesto_ataki
+                    p = b.tsel.pozitsiya+pygame.math.Vector2(math.cos(a),math.sin(a))*r
+                    mesta.setdefault(b.tsel, []).append((b,p))
+        udary = []
+        for b in zhivye:
+            b.animatsiya.obnovit(dt)
+            b.pauza = max(0, b.pauza-dt)
+            b.perevybor -= dt
+            if self.vremya < b.zaderzhka or self.ostalos == self.vyzhivet:
+                b.animatsiya.ustanovit("pokoy")
+                continue
+            if b.tsel_udara is not None:
+                staroe = b.vremya_ataki
+                b.vremya_ataki += dt
+                dlitelnost = b.animatsiya.dlitelnost_ataki()
+                if staroe < dlitelnost*.5 <= b.vremya_ataki:
+                    udary.append((b,b.tsel_udara))
+                if b.vremya_ataki >= dlitelnost:
+                    b.tsel_udara = None
+                    b.pauza = random.uniform(.12,.35)
+                    b.animatsiya.ustanovit("pokoy")
+                continue
+            if b.tsel is None or not b.tsel.zhiv:
+                b.tsel = self.nayti_tsel(b, vragi[1-b.storona], nagruzka)
+                b.mesto_ataki = None
+                if b.tsel is not None:
+                    nagruzka[b.tsel] = nagruzka.get(b.tsel,0)+1
+            tsel = b.tsel
+            if tsel is None:
+                b.animatsiya.ustanovit("pokoy")
+                continue
+            vektor = tsel.pozitsiya-b.pozitsiya
+            dist = vektor.length()
+            dalnost = b.radius+tsel.radius+b.dalnost
+            if dist <= dalnost:
+                b.povernut(vektor)
+                b.animatsiya.ustanovit("pokoy")
+                if b.pauza <= 0:
+                    b.tsel_udara = tsel
+                    b.vremya_ataki = 0.0
+                    b.animatsiya.ustanovit("ataka")
+                continue
+            if b.mesto_ataki is None or b.perevybor <= 0:
+                b.mesto_ataki = self.nayti_mesto_ataki(b, tsel, mesta.get(tsel, []))
+                b.perevybor = random.uniform(.35,.65)
+                a = b.mesto_ataki
+                r = b.radius+tsel.radius+b.dalnost*.65
+                mesta.setdefault(tsel,[]).append((b,tsel.pozitsiya+pygame.math.Vector2(math.cos(a),math.sin(a))*r))
+            a = b.mesto_ataki
+            r = b.radius+tsel.radius+b.dalnost*.65
+            mesto = tsel.pozitsiya+pygame.math.Vector2(math.cos(a),math.sin(a))*r
+            napravlenie = mesto-b.pozitsiya
+            if napravlenie.length_squared() > .001:
+                b.povernut(napravlenie)
+                b.pozitsiya += napravlenie.normalize()*min(b.skorost*dt, napravlenie.length())
+                self.ogranichit(b)
+                b.animatsiya.ustanovit("hodba")
+        self.rastolknut(zhivye)
+        for b, tsel in udary:
+            self.udar(b, tsel)
+        if self.ostalos == self.vyzhivet and self.vremya >= 8:
+            self.zakonchen = True
+        elif self.vremya >= 18:
+            # Если бойцы застряли, результат всё равно должен совпасть с расчётом.
+            self.avarijno = self.ostalos != self.vyzhivet
+            for i in range(2):
+                kandidaty = sorted((b for b in self.po_storonam[i] if b.zhiv), key=lambda b: -b.udary)
+                for b in kandidaty[:self.ostalos[i]-self.vyzhivet[i]]:
+                    self.ubit(b)
+            self.zakonchen = True
+
+    def narisovat(self, poverhnost):
+        staryy_clip = poverhnost.get_clip()
+        poverhnost.set_clip(self.arena)
+        for b in sorted(self.boitsy, key=lambda b: (b.zhiv,b.pozitsiya.y)):
+            b.narisovat(poverhnost)
+        poverhnost.set_clip(staryy_clip)
+
+
 # Муравьи и их перемещение
 class Muravey:
     def __init__(pelmeshki, tip, kletka, komanda="igrok", kolichestvo=None):
@@ -354,22 +753,17 @@ class Muravey:
         ))
         pelmeshki.pozitsiya = pygame.math.Vector2(kletka.center)
         pelmeshki.marshrut = []
-        pelmeshki.vremya_animatsii = 0.0
         pelmeshki.skorost_dvizheniya = 160
         pelmeshki.ugol = 0
         pelmeshki.vrag_dlya_boya = None
         pelmeshki.atakoval_v_etom_hodu = False
+        pelmeshki.animatsiya = Animatsiya(tip, komanda, dannye["razmer_na_karte"])
 
-    def narisovat(pelmeshki, poverhnost, kadry):
+    def narisovat(pelmeshki, poverhnost):
         if pelmeshki.zdorovie <= 0:
             return
 
-        if pelmeshki.marshrut:
-            nomer = int(pelmeshki.vremya_animatsii / 0.12) % len(kadry)
-        else:
-            nomer = 0
-
-        kartinka = pygame.transform.rotate(kadry[nomer], pelmeshki.ugol)
+        kartinka = pelmeshki.animatsiya.kartinka(pelmeshki.ugol)
         mesto = kartinka.get_rect(center=(
             round(pelmeshki.pozitsiya.x),
             round(pelmeshki.pozitsiya.y)
@@ -383,7 +777,7 @@ class Muravey:
         poverhnost.blit(chislo, chislo.get_rect(center=podlozhka.center))
 
         if pelmeshki.odin:
-            # Текстур пока нет, так что хотя бы подпишем, кто тут богомол, а кто тарантул.
+            # Подпись нужна, чтобы одиночных врагов было проще различать на карте.
             imya = shrift_imen_vragov.render(pelmeshki.nazvanie, True, (255, 235, 190))
             poverhnost.blit(imya, imya.get_rect(midbottom=(mesto.centerx, mesto.top - 3)))
 
@@ -407,14 +801,16 @@ class Muravey:
 
         pelmeshki.ostalos_hodov -= dostupnye[koord]
         pelmeshki.marshrut = put
-        pelmeshki.vremya_animatsii = 0.0
         return True
 
     def obnovit(pelmeshki, delta_time):
-        if pelmeshki.zdorovie <= 0 or not pelmeshki.marshrut:
+        if pelmeshki.zdorovie <= 0:
+            return
+        pelmeshki.animatsiya.ustanovit("hodba" if pelmeshki.marshrut else "pokoy")
+        pelmeshki.animatsiya.obnovit(delta_time)
+        if not pelmeshki.marshrut:
             return
 
-        pelmeshki.vremya_animatsii += delta_time
         sleduyushchaya = pelmeshki.marshrut[0]
         napravlenie = sleduyushchaya.center - pelmeshki.pozitsiya
         rasstoyanie = napravlenie.length()
@@ -445,7 +841,9 @@ class Muravey:
         pelmeshki.kolichestvo = 0
         pelmeshki.marshrut.clear()
         pelmeshki.vrag_dlya_boya = None
+        pelmeshki.animatsiya.ustanovit("smert")
         effekty_smerti.append({
+            "kartinka": pelmeshki.animatsiya.kartinka(pelmeshki.ugol),
             "pozitsiya": pelmeshki.pozitsiya.copy(),
             "vremya": 0.0
         })
@@ -486,7 +884,7 @@ def rasschitat_boy(levyy, pravyy):
         sila_pobedy = max(sila_levogo, sila_pravogo)
         sila_porazheniya = min(sila_levogo, sila_pravogo)
 
-        # Чем больше силы, тем больше потери. У победителя останется хотя бы один живой.
+        # Чем ближе силы отрядов, тем больше потери. У победителя останется хотя бы один живой.
         dolya_poter = (sila_porazheniya / sila_pobedy) ** 1.5
         umerlo_u_pobeditelya = min(
             pobedivshih.kolichestvo - 1,
@@ -508,10 +906,9 @@ def rasschitat_boy(levyy, pravyy):
 
 
 class Avtoboy:
-    def __init__(self, levyy, pravyy, kadry):
+    def __init__(self, levyy, pravyy):
         self.levyy = levyy
         self.pravyy = pravyy
-        self.kadry = kadry
         self.itog = rasschitat_boy(levyy, pravyy)
         self.vremya = 0.0
         self.stadiya = "bitva"
@@ -532,25 +929,7 @@ class Avtoboy:
         self.palette = self.poluchit_paltru_boya(tip_polya_boya)
 
         # На больших отрядах ужимаем отдельные спрайты, но не подменяем армию одной картинкой.
-        self.figury_levogo, size_l = self.sozdat_figury(
-            self.itog["do_levogo"], self.itog["posle_levogo"], "levyy"
-        )
-        self.figury_pravogo, size_p = self.sozdat_figury(
-            self.itog["do_pravogo"], self.itog["posle_pravogo"], "pravyy"
-        )
-        self.sprayty = {}
-        for storona, razmer in (("levyy", size_l), ("pravyy", size_p)):
-            razmer = max(8, razmer)
-            if storona == "pravyy" and pravyy.odin:
-                # Это всё ещё муравей-затычка, просто увеличенный, чтобы одиночный враг не терялся на арене.
-                razmer = 62 if pravyy.tip == "bogomol" else 78
-            self.sprayty[storona] = [
-                pygame.transform.rotate(
-                    pygame.transform.scale(kadr, (razmer, razmer)),
-                    -90 if storona == "levyy" else 90
-                )
-                for kadr in kadry
-            ]
+        self.ii = BoevoyII(self.arena, levyy, pravyy, self.itog)
 
     def poluchit_paltru_boya(self, tip):
         palitry = {
@@ -653,43 +1032,12 @@ class Avtoboy:
         }
         return palitry.get(tip, palitry["polya"])
 
-    def sozdat_figury(self, kolichestvo, vyzhilo, storona):
-        stolbtsy = max(1, min(17, math.ceil(math.sqrt(kolichestvo * 1.6))))
-        ryady = math.ceil(kolichestvo / stolbtsy)
-        interval = min(43, 330 / max(1, stolbtsy), 290 / max(1, ryady))
-        razmer = max(8, int(min(35, interval * 0.80)))
-        nachalnyy_x = self.arena.left + 165 if storona == "levyy" else self.arena.right - 165
-        konechnyy_x = self.arena.centerx - 88 if storona == "levyy" else self.arena.centerx + 88
-        tsentr_y = self.arena.centery + 23
-
-        figury = []
-        for i in range(kolichestvo):
-            col = i % stolbtsy
-            row = i // stolbtsy
-            dx = (col - (stolbtsy - 1) / 2) * interval
-            dy = (row - (ryady - 1) / 2) * interval
-            figury.append({
-                "start": (nachalnyy_x + dx, tsentr_y + dy),
-                "konets": (konechnyy_x + dx, tsentr_y + dy),
-                "smert": None,
-                "otstup": (i % 3 - 1) * 2
-            })
-
-        # Кого именно убрать — выбираем один раз. В кадрах затем нет никакой случайной боевой логики.
-        indeksi = list(range(kolichestvo))
-        random.Random(kolichestvo * 97 + vyzhilo * 17).shuffle(indeksi)
-        skolko_umerlo = kolichestvo - vyzhilo
-        for poriadok, i in enumerate(indeksi[:skolko_umerlo]):
-            figury[i]["smert"] = 2.8 + (poriadok + 1) / (skolko_umerlo + 1) * 4.8
-
-        return figury, razmer
-
     def obnovit(self, delta_time):
         if self.stadiya != "bitva":
             return
-        self.vremya += delta_time
-        if self.vremya >= 8.2:
-            self.vremya = 8.2
+        self.ii.obnovit(delta_time)
+        self.vremya = self.ii.vremya
+        if self.ii.zakonchen:
             self.stadiya = "rezultat"
 
     def zavershit(self):
@@ -721,37 +1069,6 @@ class Avtoboy:
         poverhnost.blit(self.fon_zatemneniya, (0, 0))
         pygame.draw.rect(poverhnost, self.palette["panel"], self.panel)
 
-    def narisovat_figury(self, poverhnost, figury, storona):
-        # Армии сходятся, потом слегка дёргаются в ближнем бою; погибшие плавно растворяются.
-        priblizhenie = max(0, min(1, (self.vremya - 0.65) / 1.7))
-        priblizhenie = priblizhenie * priblizhenie * (3 - 2 * priblizhenie)
-        kadr = int(self.vremya / 0.12) % len(self.sprayty[storona])
-        if self.vremya < 0.65:
-            kadr = 0
-        for i, figura in enumerate(figury):
-            smert = figura["smert"]
-            if smert is not None and self.vremya >= smert + 0.34:
-                continue
-            alfa = 255
-            if smert is not None and self.vremya >= smert:
-                alfa = max(0, int(255 * (1 - (self.vremya - smert) / 0.34)))
-
-            x1, y1 = figura["start"]
-            x2, y2 = figura["konets"]
-            x = x1 + (x2 - x1) * priblizhenie
-            y = y1 + (y2 - y1) * priblizhenie
-            if 2.35 < self.vremya < 7.7:
-                storona_udara = 1 if storona == "levyy" else -1
-                x += storona_udara * math.sin(self.vremya * 10 + i * 1.3) * 6
-                y += math.sin(self.vremya * 7 + i * 0.8) * 3
-
-            kartinka = self.sprayty[storona][kadr]
-            if alfa != 255:
-                kartinka = kartinka.copy()
-                kartinka.set_alpha(alfa)
-            rect = kartinka.get_rect(center=(round(x), round(y)))
-            poverhnost.blit(kartinka, rect)
-
     def narisovat_bitvu(self, poverhnost):
         self.tekst(
             poverhnost, "ВАША КОЛОНИЯ", self.sh_malyy,
@@ -763,21 +1080,15 @@ class Avtoboy:
             self.palette["pravyy_tekst"], (self.panel.right - 48, self.panel.top + 116), "midright"
         )
 
-        def ostalos(figury):
-            return sum(
-                1 for figura in figury
-                if figura["smert"] is None or figura["smert"] > self.vremya
-            )
-
         self.tekst(
-            poverhnost, f"{ostalos(self.figury_levogo)} муравьёв",
+            poverhnost, f"{self.ii.ostalos[0]} муравьёв",
             self.sh_obychniy, self.palette["osnovnoy_tekst"],
             (self.panel.left + 48, self.panel.top + 146), "midleft"
         )
         kolichestvo_vraga = (
-            f"{ostalos(self.figury_pravogo)} из 1"
+            f"{self.ii.ostalos[1]} из 1"
             if self.pravyy.odin
-            else f"{ostalos(self.figury_pravogo)} муравьёв"
+            else f"{self.ii.ostalos[1]} муравьёв"
         )
         self.tekst(
             poverhnost, kolichestvo_vraga,
@@ -786,8 +1097,7 @@ class Avtoboy:
         )
 
         pygame.draw.rect(poverhnost, self.palette["arena"], self.arena)
-        self.narisovat_figury(poverhnost, self.figury_levogo, "levyy")
-        self.narisovat_figury(poverhnost, self.figury_pravogo, "pravyy")
+        self.ii.narisovat(poverhnost)
 
         self.tekst(
             poverhnost, f"Сила: {self.itog['sila_levogo']:,.0f}".replace(",", " "),
@@ -1108,6 +1418,9 @@ if os.path.exists(put_karty):
 
 setka_sloy = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
 
+cveta_koloniy = {"igrok": (82, 125, 200), "vrag": (189, 77, 77)}
+zagruzchik_atlasov = ZagruzchikAtlasov()
+
 muravi = [
     Muravey("rabochiy", hex_grid[(4, 4)], "igrok", 12),
     Muravey("soldat", hex_grid[(6, 4)], "igrok", 12),
@@ -1115,6 +1428,15 @@ muravi = [
     Muravey("bogomol", hex_grid[(12, 4)], "vrag", 1),
     Muravey("tarantul", hex_grid[(16, 5)], "vrag", 1)
 ]
+# Если на своей карте кто-то залил точку появления паука водой, ищем ближайшую сухую клетку.
+zanyatye_pri_spavne = {(m.kletka.col, m.kletka.row) for m in muravi}
+kletka_pauka = min((k for koord, k in hex_grid.items()
+                   if koord not in zanyatye_pri_spavne
+                   and tipy_provintsiy[provintsii_kletok[koord]].get("prohodima", True)
+                   and not tipy_provintsiy[provintsii_kletok[koord]].get("smertelna", False)),
+                  key=lambda k: k.center.distance_squared_to(hex_grid[(18, 5)].center), default=None)
+if kletka_pauka is not None:
+    muravi.append(Muravey("pauk", kletka_pauka, "vrag", 1))
 
 vybrannyy_muravey = None
 tsel_ataki = None
@@ -1187,7 +1509,7 @@ while running:
             if (muravey.zdorovie > 0 and vrag.zdorovie > 0
                     and muravey.kolichestvo > 0 and vrag.kolichestvo > 0
                     and muravey.kletka.is_has_neighbor(vrag.kletka)):
-                avtoboy = Avtoboy(muravey, vrag, kadry_muravya)
+                avtoboy = Avtoboy(muravey, vrag)
                 break
 
         if vybrannyy_muravey is not None:
@@ -1406,7 +1728,7 @@ while running:
         building.draw(screen)
 
     for muravey in muravi:
-        muravey.narisovat(screen, kadry_muravya)
+        muravey.narisovat(screen)
 
     if avtoboy is None:
         for effekt in effekty_smerti[:]:
@@ -1422,6 +1744,9 @@ while running:
             else:
                 alfa = int(255 * (1 - (vremya - 1.4) / 1.6))
 
+            kartinka = effekt["kartinka"].copy()
+            kartinka.set_alpha(min(255, int(255 * (3.0-vremya)/1.6)))
+            screen.blit(kartinka, kartinka.get_rect(center=effekt["pozitsiya"]))
             nadpis = tekst_smerti.copy()
             nadpis.set_alpha(alfa)
             mesto = nadpis.get_rect(center=effekt["pozitsiya"])

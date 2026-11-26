@@ -6,7 +6,153 @@
     "uron": 5,
     "bronya": 0,
     "kolichestvo": 10,
-    "odin": false
+    "odin": false,
+    "tekstura": "worker.png",
+    "shirina_kadra": 128,
+    "vysota_kadra": 128,
+    "razmer_na_karte": 32,
+    "razmer_v_boyu": 36,
+    "skorost_boya": 125,
+    "radius_boya": 0.28,
+    "okrashivanie": true,
+    "animatsii": {
+      "pokoy": {
+        "kadry": [
+          [
+            0,
+            0
+          ]
+        ],
+        "fps": 1
+      },
+      "hodba": {
+        "kadry": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            2,
+            0
+          ],
+          [
+            3,
+            0
+          ],
+          [
+            4,
+            0
+          ],
+          [
+            5,
+            0
+          ],
+          [
+            6,
+            0
+          ],
+          [
+            7,
+            0
+          ]
+        ],
+        "fps": 24
+      },
+      "ataka": {
+        "kadry": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            7,
+            1
+          ]
+        ],
+        "fps": 14
+      },
+      "smert": {
+        "kadry": [
+          [
+            0,
+            3
+          ]
+        ],
+        "fps": 1
+      }
+    },
+    "usiki": {
+      "tekstura": "antenna.png",
+      "shirina_kadra": 128,
+      "vysota_kadra": 64,
+      "kadry": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          5,
+          0
+        ],
+        [
+          6,
+          0
+        ],
+        [
+          7,
+          0
+        ]
+      ],
+      "shirina": 0.75,
+      "vysota": 0.4,
+      "sdvig_y": -0.45,
+      "fps_min": 8,
+      "fps_max": 16
+    }
   },
   "soldat": {
     "nazvanie": "Муравей-солдат",
@@ -15,7 +161,153 @@
     "uron": 50,
     "bronya": 20,
     "kolichestvo": 10,
-    "odin": false
+    "odin": false,
+    "tekstura": "soldier.png",
+    "shirina_kadra": 128,
+    "vysota_kadra": 128,
+    "razmer_na_karte": 36,
+    "razmer_v_boyu": 42,
+    "skorost_boya": 115,
+    "radius_boya": 0.28,
+    "okrashivanie": true,
+    "animatsii": {
+      "pokoy": {
+        "kadry": [
+          [
+            0,
+            0
+          ]
+        ],
+        "fps": 1
+      },
+      "hodba": {
+        "kadry": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            2,
+            0
+          ],
+          [
+            3,
+            0
+          ],
+          [
+            4,
+            0
+          ],
+          [
+            5,
+            0
+          ],
+          [
+            6,
+            0
+          ],
+          [
+            7,
+            0
+          ]
+        ],
+        "fps": 24
+      },
+      "ataka": {
+        "kadry": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            7,
+            1
+          ]
+        ],
+        "fps": 14
+      },
+      "smert": {
+        "kadry": [
+          [
+            0,
+            3
+          ]
+        ],
+        "fps": 1
+      }
+    },
+    "usiki": {
+      "tekstura": "antenna.png",
+      "shirina_kadra": 128,
+      "vysota_kadra": 64,
+      "kadry": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          5,
+          0
+        ],
+        [
+          6,
+          0
+        ],
+        [
+          7,
+          0
+        ]
+      ],
+      "shirina": 0.75,
+      "vysota": 0.4,
+      "sdvig_y": -0.45,
+      "fps_min": 8,
+      "fps_max": 16
+    }
   },
   "bogomol": {
     "nazvanie": "Богомол",
@@ -24,7 +316,62 @@
     "uron": 100,
     "bronya": 30,
     "kolichestvo": 1,
-    "odin": true
+    "odin": true,
+    "tekstura": null,
+    "shirina_kadra": 32,
+    "vysota_kadra": 32,
+    "razmer_na_karte": 40,
+    "razmer_v_boyu": 62,
+    "skorost_boya": 110,
+    "radius_boya": 0.3,
+    "okrashivanie": false,
+    "animatsii": {
+      "pokoy": {
+        "kadry": [
+          [
+            0,
+            0
+          ]
+        ],
+        "fps": 1
+      },
+      "hodba": {
+        "kadry": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            2,
+            0
+          ]
+        ],
+        "fps": 12
+      },
+      "ataka": {
+        "kadry": [
+          [
+            0,
+            0
+          ]
+        ],
+        "fps": 2
+      },
+      "smert": {
+        "kadry": [
+          [
+            0,
+            0
+          ]
+        ],
+        "fps": 1
+      }
+    },
+    "usiki": null
   },
   "tarantul": {
     "nazvanie": "Тарантул",
@@ -33,6 +380,157 @@
     "uron": 125,
     "bronya": 35,
     "kolichestvo": 1,
-    "odin": true
+    "odin": true,
+    "tekstura": "spider.png",
+    "shirina_kadra": 350,
+    "vysota_kadra": 350,
+    "razmer_na_karte": 48,
+    "razmer_v_boyu": 100,
+    "skorost_boya": 95,
+    "radius_boya": 0.32,
+    "okrashivanie": false,
+    "animatsii": {
+      "pokoy": {
+        "kadry": [
+          [
+            0,
+            0
+          ]
+        ],
+        "fps": 1
+      },
+      "hodba": {
+        "kadry": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            2,
+            0
+          ],
+          [
+            3,
+            0
+          ]
+        ],
+        "fps": 12
+      },
+      "ataka": {
+        "kadry": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "fps": 14
+      },
+      "smert": {
+        "kadry": [
+          [
+            0,
+            2
+          ]
+        ],
+        "fps": 1
+      }
+    },
+    "usiki": null
+  },
+  "pauk": {
+    "nazvanie": "Паук",
+    "zdorovie": 900,
+    "prohodimost": 3,
+    "uron": 110,
+    "bronya": 25,
+    "kolichestvo": 1,
+    "odin": true,
+    "tekstura": "spider2.png",
+    "shirina_kadra": 350,
+    "vysota_kadra": 350,
+    "razmer_na_karte": 48,
+    "razmer_v_boyu": 80,
+    "skorost_boya": 105,
+    "radius_boya": 0.32,
+    "okrashivanie": false,
+    "animatsii": {
+      "pokoy": {
+        "kadry": [
+          [
+            0,
+            0
+          ]
+        ],
+        "fps": 1
+      },
+      "hodba": {
+        "kadry": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            0
+          ],
+          [
+            2,
+            0
+          ],
+          [
+            3,
+            0
+          ]
+        ],
+        "fps": 12
+      },
+      "ataka": {
+        "kadry": [
+          [
+            0,
+            1
+          ],
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ]
+        ],
+        "fps": 14
+      },
+      "smert": {
+        "kadry": [
+          [
+            0,
+            2
+          ]
+        ],
+        "fps": 1
+      }
+    },
+    "usiki": null
   }
 }
