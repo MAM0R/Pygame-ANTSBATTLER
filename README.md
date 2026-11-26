@@ -1,5 +1,5 @@
 <div align="center">
-  <img src=".github/antsbattler-banner.gif" width="100%" alt="ANTSBATTLER — Маленький мир. Большая война.">
+  <img src="antsbattler-banner.gif" width="100%" alt="ANTSBATTLER — Маленький мир. Большая война.">
   <p>
     <img src="https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python">
     <img src="https://img.shields.io/badge/Pygame-526B45?style=flat-square" alt="Pygame">
