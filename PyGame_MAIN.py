@@ -63,9 +63,16 @@ hitbox_stonewall1 = pygame.Rect(x, 30, stonewall1_img.get_width(), stonewall1_im
 path_ant_house = os.path.join(textures_dir, "muraveynik.png")
 ant_house_img = pygame.image.load(path_ant_house).convert_alpha()
 
+path_ferma = os.path.join(textures_dir, "ferma.png")
+ferma_img = pygame.image.load(path_ferma).convert_alpha()
+
+path_stone_farm = os.path.join(textures_dir, "kamenolomna.png")
+stone_farm_img = pygame.image.load(path_stone_farm).convert_alpha()
+
 path_map_img = os.path.join(textures_dir, "MainMap.png")
 map_img = pygame.image.load(path_map_img).convert_alpha()
 scaled_map_img = pygame.transform.scale(map_img, screen.get_size())
+
 
 kadry_muravya = [
     pygame.image.load(os.path.join(textures_dir, f"ant{i}.png")).convert_alpha()
@@ -81,18 +88,16 @@ pygame.draw.rect(screen, (255 * collision, 255, 0), target)
                                          stonewall1_img.get_height() * 2)) НЕОПТИМИЗИРОВАННЫЙ ВАРИАНТ ТОЛЬКО ЧТО-ТО ОЧЕНЬ ВАЖНОЕ"""
 
 
-
-
 """КЛАССЫ:"""
 #HUD
 class HUD:
-    def __init__(self, width_hud, height_hud, building_images, resources, resource_emojis):
+    def __init__(self, resource_manager, width_hud, height_hud, building_images, resource_emojis):
+        self.resource_manager = resource_manager
         self.width_hud = width_hud
         self.height_hud = height_hud
         self.hud_colour = (174, 219, 242, 240) #последнее прозрачность, пока так так как иначе видно hexы
         self.building_images = building_images
         self.selected_tile = None
-        self.resources = resources
         
         self.resource_icons = {
             name: font_smiles.render(emoji, True, (30, 30, 30))
@@ -100,21 +105,22 @@ class HUD:
         }
         
         #Панель ресурсов:
-        self.resources_surface = pygame.Surface((width_hud, height_hud * 0.04), pygame.SRCALPHA)
+        self.resources_surface = pygame.Surface((width_hud, int(height_hud * 0.04)), pygame.SRCALPHA)
         self.resources_surface.fill(self.hud_colour)
         
         #Панель строений:
-        self.build_surface = pygame.Surface((width_hud * 0.15, height_hud * 0.25), pygame.SRCALPHA)
+        self.build_surface = pygame.Surface((int(width_hud * 0.15), int(height_hud * 0.25)), pygame.SRCALPHA)
         self.build_surface.fill(self.hud_colour)
         
         #Выбрать HUD:
-        self.select_surface = pygame.Surface((width_hud * 0.3, height_hud * 0.2), pygame.SRCALPHA)
+        self.select_surface = pygame.Surface((int(width_hud * 0.3), int(height_hud * 0.2)), pygame.SRCALPHA)
         self.select_surface.fill(self.hud_colour)
         self.tiles = self.create_build_hud()
         
         self.resources_rect = self.resources_surface.get_rect(topleft=(0, 0))
         self.build_rect = self.build_surface.get_rect(topleft=(width_hud * 0.84, height_hud * 0.74))
         self.select_rect = self.select_surface.get_rect(topleft=(width_hud * 0.01, height_hud * 0.79))
+
     def create_build_hud(self):
         x_start = self.width_hud * 0.84 + 15
         render_pos = [x_start, self.height_hud * 0.74 + 15]
@@ -149,7 +155,7 @@ class HUD:
                 if mouse_action[0]:
                     self.selected_tile = tile
     
-    def draw(self, screen):
+    def draw(self, screen, unit_count = 0, max_units = 0):
         screen.blit(self.resources_surface, (0, 0))
         screen.blit(self.build_surface, (self.width_hud * 0.84, self.height_hud * 0.74))
         screen.blit(self.select_surface, (self.width_hud * 0.01, self.height_hud * 0.79))
@@ -157,9 +163,18 @@ class HUD:
         for tile in self.tiles:
             screen.blit(tile["icon"], tile["rect"].topleft)
         
+        if self.selected_tile is not None:
+            pygame.draw.rect(screen, (255, 255, 0), self.selected_tile["rect"], 3)
+
+        #Прочее, текст и так далее:
+        units_text = font.render(f"Ячейки юнитов: {unit_count}/{max_units}", True, (20, 20, 20))
+        units_rect = units_text.get_rect(midleft=(20, self.resources_rect.centery))
+        screen.blit(units_text, units_rect)
+
+
         #Ресурсы:
-        pos = self.width_hud - 400
-        for resource, amount in self.resources.items():
+        pos = self.width_hud - 420
+        for resource, resource_value in self.resource_manager.resources.items():
             if resource in self.resource_icons:
                 icon = self.resource_icons[resource]
                 icon_rect = icon.get_rect(midleft=(pos, self.resources_rect.centery))
@@ -168,11 +183,12 @@ class HUD:
             else:
                 text_x = pos
             
-            text_surface = font.render(f"{resource}: {amount}", True, (20, 20, 20))
+            text_surface = font.render(f"{resource}: {resource_value}", True, (20, 20, 20))
             text_rect = text_surface.get_rect(midleft=(text_x, self.resources_rect.centery))
             screen.blit(text_surface, text_rect)
             pos += 180
     
+
     def scale_image(self, image, w=None, h=None):
         if (w == None) and (h == None):
             pass
@@ -202,14 +218,86 @@ class ResourceManager:
     def __init__(self):
         #Ресурсы:
         self.resources = {
-            "wood": 10,
-            "stone": 10
+            "wood": 40,
+            "stone": 40
         }
         
         #Стоимость постройки:
         self.costs = {
-            "ant_house": {"wood": 7, "stone": 3}
+            "Stone_Farm": {"wood": 15, "stone": 3},
+            "Wood_Farm": {"wood": 3, "stone": 15},
+            "ant_house": {"wood": 20, "stone": 20}
         }
+
+    def apply_cost_to_resource(self, building):
+        for resource, cost in self.costs[building].items():
+            self.resources[resource] -= cost
+
+    def is_affordable(self, building):
+        b_affordable = True
+        for resource, cost in self.costs[building].items():
+            if cost > self.resources[resource]:
+                b_affordable = False
+        return b_affordable
+
+
+#СТРОЕНИЯ:
+#Муравейник:
+class Ant_House:
+    def __init__(self, tile, resource_manager):
+        self.tile = tile
+        self.image = scale_building_image(ant_house_img, tile.radius * 1.8)
+        self.name = "ant_house"
+        self.rect = self.image.get_rect(center = tile.center)
+        self.resource_manager = resource_manager
+        self.resource_manager.apply_cost_to_resource(self.name)
+        self.unit_slots = 5
+        self.production = {"wood": 7, "stone": 7}
+
+    def produce_per_turn(self):
+        for resource, amount in self.production.items():
+            self.resource_manager.resources[resource] += amount
+
+    def draw(self, surface):
+        surface.blit(self.image, self.rect)
+
+#Ферма:
+class WoodFarm:
+    def __init__(self, tile, resource_manager):
+            self.tile = tile
+            self.image = scale_building_image(ferma_img, tile.radius * 1.8)
+            self.name = "Wood_Farm"
+            self.rect = self.image.get_rect(center = tile.center)
+            self.resource_manager = resource_manager
+            self.resource_manager.apply_cost_to_resource(self.name)
+            self.unit_slots = 0
+            self.production = {"wood": 5}
+
+    def produce_per_turn(self):
+        for resource, amount in self.production.items():
+            self.resource_manager.resources[resource] += amount
+
+    def draw(self, surface):
+        surface.blit(self.image, self.rect)
+
+#Каменоломня:
+class StoneFarm:
+    def __init__(self, tile, resource_manager):
+            self.tile = tile
+            self.image = scale_building_image(stone_farm_img, tile.radius * 1.8)
+            self.name = "Stone_Farm"
+            self.rect = self.image.get_rect(center = tile.center)
+            self.resource_manager = resource_manager
+            self.resource_manager.apply_cost_to_resource(self.name)
+            self.unit_slots = 0
+            self.production = {"stone": 5}
+
+    def produce_per_turn(self):
+        for resource, amount in self.production.items():
+            self.resource_manager.resources[resource] += amount
+
+    def draw(self, surface):
+        surface.blit(self.image, self.rect)
 
 #Кнопка:
 class TestButton:
@@ -237,7 +325,7 @@ class TestButton:
         mouse_pos = pygame.mouse.get_pos()
         left_click = pygame.mouse.get_pressed()
         button_rect = pygame.rect.Rect((self.x_pos, self.y_pos), (150, 25))
-        if left_click and button_rect.collidepoint(mouse_pos) and self.b_enabled:
+        if left_click[0] and button_rect.collidepoint(mouse_pos) and self.b_enabled:
             return True
         else:
             return False
@@ -797,6 +885,7 @@ class Avtoboy:
 #HEX TOOL (MAIN HEX):
 class Hex: #$\sqrt{\Delta x^2 + \Delta y^2}$)
     def __init__(self, row, col, hex_x, hex_y, hex_radius):
+        self.building = None
         self.col = col
         self.row = row
         self.center = pygame.math.Vector2(hex_x, hex_y)
@@ -848,8 +937,9 @@ def create_hex_grid(hex_grid_width, hex_grid_height, hex_grid_radius):
     return grid
 
 #HEX TOOL (Конкретная клетка под курсором мыши):
-def hex_under_mouse(grid):
-    mouse_pos = pygame.mouse.get_pos()
+def hex_under_mouse(grid, mouse_pos=None):
+    if mouse_pos is None:
+        mouse_pos = pygame.mouse.get_pos()
     m_vec = pygame.math.Vector2(mouse_pos)
     closest_hex = None
     min_dist = float("inf")
@@ -979,6 +1069,30 @@ def nayti_podhod_k_vragu(muravey, vrag, dostupnye=None):
 
 
 
+def scale_building_image(image, size):
+    scale = size / max(image.get_width(), image.get_height())
+    width = max(1, round(image.get_width() * scale))
+    height = max(1, round(image.get_height() * scale))
+    return pygame.transform.scale(image, (width, height))
+
+
+def can_place_building(tile, building_type):
+    coords = (tile.col, tile.row)
+    terrain = tipy_provintsiy[provintsii_kletok[coords]]
+    # Проверяем ещё и маршрут юнита, чтобы не поставить здание прямо у него под ногами.
+    is_occupied = any(
+        unit.zdorovie > 0 and (unit.kletka is tile or tile in unit.marshrut)
+        for unit in muravi
+    )
+    return (
+        tile.building is None
+        and terrain.get("prohodima", True)
+        and not terrain.get("smertelna", False)
+        and not is_occupied
+        and resource_manager.is_affordable(building_type)
+    )
+
+
 # Инициализация карты
 hex_grid = create_hex_grid(HEX_GRID_WIDTH, HEX_GRID_HEIGHT, HEX_GRID_RADIUS)
 put_karty = os.path.join(data_dir, "karta_provintsiy.json")
@@ -1012,18 +1126,27 @@ effekty_smerti = []
 shrift_smerti = pygame.font.SysFont("arial", 12, bold=True)
 tekst_smerti = shrift_smerti.render("Смерть", True, (255, 255, 255))
 
-resources = {
-    "wood": 50,
-    "stone": 30
-}
+
 resource_emojis = {
     "wood": "🌲",
     "stone": "🪨"
 }
+
 building_textures = {
-    "Муравейник": ant_house_img
+    "Stone_Farm": stone_farm_img,
+    "Wood_Farm": ferma_img,
+    "ant_house": ant_house_img,
 }
-hud = HUD(1600, 900, building_textures, resources, resource_emojis)
+
+BUILDING_CLASSES = {
+    "Stone_Farm": StoneFarm,
+    "Wood_Farm": WoodFarm,
+    "ant_house": Ant_House,
+}
+buildings = []
+
+resource_manager = ResourceManager()
+hud = HUD(resource_manager, 1600, 900, building_textures, resource_emojis)
 
 redaktor = False
 tip_kisti = "les"
@@ -1088,7 +1211,6 @@ while running:
             if tsel_ataki.zdorovie <= 0 or vybrannyy_muravey is None:
                 tsel_ataki = None
 
-        hud.update()
 
     boy_zakryvalsya_v_etom_kadre = avtoboy is not None
     for event in pygame.event.get():
@@ -1099,7 +1221,7 @@ while running:
         if boy_zakryvalsya_v_etom_kadre:
             # Даже после клика «Вернуться» остатки событий этого кадра не пускаем на карту.
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if avtoboy.obrabotat_nazhatie(event.pos):
+                if avtoboy is not None and avtoboy.obrabotat_nazhatie(event.pos):
                     avtoboy = None
                     vybrannyy_muravey = None
                     tsel_ataki = None
@@ -1108,6 +1230,7 @@ while running:
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_F2:
                 redaktor = not redaktor
+                hud.selected_tile = None
                 vybrannyy_muravey = None
                 tsel_ataki = None
                 print("Редактор:", redaktor)
@@ -1127,23 +1250,46 @@ while running:
                 print("Карта сохранена!")
 
             if event.key == pygame.K_n and not redaktor:
-                if all(not muravey.marshrut for muravey in muravi):
+                if all(not muravey.marshrut and muravey.vrag_dlya_boya is None
+                       for muravey in muravi):
                     for muravey in muravi:
                         if muravey.zdorovie > 0:
                             muravey.ostalos_hodov = muravey.prohodimost
                             muravey.atakoval_v_etom_hodu = False
                     vybrannyy_muravey = None
                     tsel_ataki = None
+                    for building in buildings:
+                        building.produce_per_turn()
                     print("Новый ход!")
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 3:
+                hud.selected_tile = None
                 vybrannyy_muravey = None
                 tsel_ataki = None
 
-            if event.button == 1 and not redaktor and not hud.is_mouse_over(event.pos):
-                kletka = hex_under_mouse(hex_grid)
+            if event.button == 1 and not redaktor:
+                if hud.is_mouse_over(event.pos):
+                    for tile in hud.tiles:
+                        if tile["rect"].collidepoint(event.pos):
+                            hud.selected_tile = tile
+                            vybrannyy_muravey = None
+                            tsel_ataki = None
+                            break
+                    continue
+
+                kletka = hex_under_mouse(hex_grid, event.pos)
                 if kletka is None:
+                    continue
+
+                # Если выбрали постройку, этот клик уже не должен двигать муравья.
+                if hud.selected_tile is not None:
+                    building_type = hud.selected_tile["name"]
+                    if can_place_building(kletka, building_type):
+                        building = BUILDING_CLASSES[building_type](kletka, resource_manager)
+                        kletka.building = building
+                        buildings.append(building)
+                        hud.selected_tile = None
                     continue
 
                 nazhatyy_muravey = None
@@ -1256,6 +1402,9 @@ while running:
 
     screen.blit(setka_sloy, (0, 0))
 
+    for building in buildings:
+        building.draw(screen)
+
     for muravey in muravi:
         muravey.narisovat(screen, kadry_muravya)
 
@@ -1280,18 +1429,34 @@ while running:
 
     test_button = TestButton("КЛИК НА МЕНЯ", 250, 250, True)
 
-    if hud.selected_tile is not None and hovered_tile is not None:
-        preview_img = hud.selected_tile["icon"].copy()
+    if hud.selected_tile is not None and hovered_tile is not None and not redaktor:
+        building_type = hud.selected_tile["name"]
+        preview_img = scale_building_image(
+            building_textures[building_type],
+            hovered_tile.radius * 1.8
+        )
         preview_img.set_alpha(160)
         preview_rect = preview_img.get_rect(center=hovered_tile.center)
         screen.blit(preview_img, preview_rect)
 
-    hud.draw(screen)
+        can_build = can_place_building(hovered_tile, building_type)
+        border_color = (50, 255, 50) if can_build else (255, 60, 60)
+        hovered_tile.draw(screen, color=border_color, thick=4)
+
+    unit_count = sum(1 for unit in muravi if unit.komanda == "igrok" and unit.zdorovie > 0)
+    max_units = sum(building.unit_slots for building in buildings)
+    hud.draw(screen, unit_count, max_units)
 
     # Окно битвы.
     if avtoboy is not None:
         avtoboy.narisovat(screen)
 
-    pygame.display.update()
+    """#МЫШКА:
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            print("КЛИК")
+        if event.type == pygame.MOUSEBUTTONUP:
+            print("КЛИК КОНЧИЛСЯ")"""
+
+    pygame.display.update() #чтобы показывалось изображение
 
 pygame.quit()
