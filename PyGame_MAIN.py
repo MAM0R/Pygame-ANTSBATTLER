@@ -6,6 +6,7 @@ import json
 import heapq
 
 
+
 pygame.init()
 
 screen = pygame.display.set_mode((1600, 900)) #разрешение окна (16:9)
@@ -21,15 +22,25 @@ game_icon = pygame.image.load(path_game_icon)
 pygame.display.set_icon(game_icon)
 
 #JSON парсер:
-muravi_json = os.path.join(data_dir, "muravi.json")
-with open(muravi_json, "r", encoding="utf-8") as f:
-    json_f = json.load(f)
-print(json_f)
+units_json = os.path.join(data_dir, "units.json")
+with open(units_json, "r", encoding="utf-8") as fail:
+    units = json.load(fail)
 
 provintsii_json = os.path.join(data_dir, "tipy_provintsiy.json")
 
-with open(provintsii_json, "r", encoding="utf-8") as fail:
-    tipy_provintsiy = json.load(fail)
+if os.path.exists(provintsii_json):
+    with open(provintsii_json, "r", encoding="utf-8") as fail:
+        tipy_provintsiy = json.load(fail)
+else:
+    # Если у кого-то нет файла с типами клеток, игра хотя бы запустится на стандартных настройках.
+    tipy_provintsiy = {
+        "polya": {"stoimost": 1},
+        "les": {"stoimost": 2},
+        "gory": {"stoimost": 3},
+        "pustynya": {"stoimost": 2},
+        "plyazh": {"stoimost": 2},
+        "voda": {"stoimost": 0, "smertelna": True}
+    }
 
 """ВАЖНЫЕ ПЕРЕМЕННЫЕ:"""
 running = True #нужно чтобы игра сразу не закрывалась
@@ -57,9 +68,7 @@ map_img = pygame.image.load(path_map_img).convert_alpha()
 scaled_map_img = pygame.transform.scale(map_img, screen.get_size())
 
 kadry_muravya = [
-    pygame.image.load(
-        os.path.join(textures_dir, f"ant{i}.png")
-    ).convert_alpha()
+    pygame.image.load(os.path.join(textures_dir, f"ant{i}.png")).convert_alpha()
     for i in range(1, 4)
 ]
 
@@ -70,6 +79,8 @@ pygame.draw.rect(screen, (255 * collision, 255, 0), target)
 """stonewall1_img = pygame.transform.scale(stonewall1_img,
                                         (stonewall1_img.get_width() * 2,
                                          stonewall1_img.get_height() * 2)) НЕОПТИМИЗИРОВАННЫЙ ВАРИАНТ ТОЛЬКО ЧТО-ТО ОЧЕНЬ ВАЖНОЕ"""
+
+
 
 
 """КЛАССЫ:"""
@@ -232,23 +243,34 @@ class TestButton:
             return False
         
 
-#class Муравьёв:
-class Muravey:
-    def __init__(pelmeshki, tip, kletka):
-        dannye = json_f[tip]
 
-        pelmeshki.nazvanie = dannye["nazvanie"]
+
+# Муравьи и их перемещение
+class Muravey:
+    def __init__(pelmeshki, tip, kletka, komanda="igrok", kolichestvo=None):
+        dannye = units[tip]
+        pelmeshki.tip = tip
+        pelmeshki.odin = dannye.get("odin", False)
+        pelmeshki.nazvanie = dannye.get("nazvanie", dannye.get("imya", tip))
         pelmeshki.zdorovie = dannye["zdorovie"]
+        pelmeshki.max_zdorovie = dannye["zdorovie"]
         pelmeshki.prohodimost = dannye["prohodimost"]
         pelmeshki.ostalos_hodov = pelmeshki.prohodimost
         pelmeshki.uron = dannye["uron"]
         pelmeshki.bronya = dannye.get("bronya", 0)
         pelmeshki.kletka = kletka
+        pelmeshki.komanda = komanda
+        # Сколько тут бойцов — столько и выйдет на арену.
+        pelmeshki.kolichestvo = 1 if pelmeshki.odin else max(1, int(
+            kolichestvo if kolichestvo is not None else dannye.get("kolichestvo", 10)
+        ))
         pelmeshki.pozitsiya = pygame.math.Vector2(kletka.center)
         pelmeshki.marshrut = []
         pelmeshki.vremya_animatsii = 0.0
         pelmeshki.skorost_dvizheniya = 160
         pelmeshki.ugol = 0
+        pelmeshki.vrag_dlya_boya = None
+        pelmeshki.atakoval_v_etom_hodu = False
 
     def narisovat(pelmeshki, poverhnost, kadry):
         if pelmeshki.zdorovie <= 0:
@@ -259,47 +281,45 @@ class Muravey:
         else:
             nomer = 0
 
-        kartinka = pygame.transform.rotate(
-            kadry[nomer],
-            pelmeshki.ugol
-        )
-
+        kartinka = pygame.transform.rotate(kadry[nomer], pelmeshki.ugol)
         mesto = kartinka.get_rect(center=(
             round(pelmeshki.pozitsiya.x),
             round(pelmeshki.pozitsiya.y)
         ))
-
         poverhnost.blit(kartinka, mesto)
 
-    def peremestitsya(pelmeshki, novaya_kletka):
-        if pelmeshki.zdorovie <= 0 or pelmeshki.marshrut:
-            return False
+        chislo = shrift_kolichestva.render(str(pelmeshki.kolichestvo), True, (255, 255, 255))
+        podlozhka = chislo.get_rect(bottomright=(mesto.right + 4, mesto.bottom + 5))
+        podlozhka.inflate_ip(7, 4)
+        pygame.draw.rect(poverhnost, (18, 30, 35), podlozhka, border_radius=5)
+        poverhnost.blit(chislo, chislo.get_rect(center=podlozhka.center))
 
-        if novaya_kletka is None:
+        if pelmeshki.odin:
+            # Текстур пока нет, так что хотя бы подпишем, кто тут богомол, а кто тарантул.
+            imya = shrift_imen_vragov.render(pelmeshki.nazvanie, True, (255, 235, 190))
+            poverhnost.blit(imya, imya.get_rect(midbottom=(mesto.centerx, mesto.top - 3)))
+
+    def peremestitsya(pelmeshki, novaya_kletka):
+        if (pelmeshki.zdorovie <= 0 or pelmeshki.marshrut
+                or pelmeshki.ostalos_hodov <= 0 or novaya_kletka is None):
             return False
 
         koord = (novaya_kletka.col, novaya_kletka.row)
         dostupnye, otkuda = nayti_dostupnye_kletki(pelmeshki)
-
         if koord not in dostupnye:
             return False
 
-        stoimost = dostupnye[koord]
         nachalo = (pelmeshki.kletka.col, pelmeshki.kletka.row)
-
         put = []
         tekushchaya = koord
-
         while tekushchaya != nachalo:
             put.append(hex_grid[tekushchaya])
             tekushchaya = otkuda[tekushchaya]
-
         put.reverse()
 
-        pelmeshki.ostalos_hodov -= stoimost
+        pelmeshki.ostalos_hodov -= dostupnye[koord]
         pelmeshki.marshrut = put
         pelmeshki.vremya_animatsii = 0.0
-
         return True
 
     def obnovit(pelmeshki, delta_time):
@@ -307,9 +327,7 @@ class Muravey:
             return
 
         pelmeshki.vremya_animatsii += delta_time
-
         sleduyushchaya = pelmeshki.marshrut[0]
-
         napravlenie = sleduyushchaya.center - pelmeshki.pozitsiya
         rasstoyanie = napravlenie.length()
         shag = pelmeshki.skorost_dvizheniya * delta_time
@@ -326,39 +344,451 @@ class Muravey:
 
             koord = (sleduyushchaya.col, sleduyushchaya.row)
             tip = provintsii_kletok[koord]
-
             if tipy_provintsiy[tip].get("smertelna", False):
                 pelmeshki.umeret()
-
-        else:
+        elif rasstoyanie > 0:
             pelmeshki.pozitsiya += napravlenie.normalize() * shag
 
     def umeret(pelmeshki):
+        # Сюда сводим любую гибель: и утопление, и проигрыш целой группы.
         if pelmeshki.zdorovie <= 0:
             return
-
         pelmeshki.zdorovie = 0
+        pelmeshki.kolichestvo = 0
         pelmeshki.marshrut.clear()
-
+        pelmeshki.vrag_dlya_boya = None
         effekty_smerti.append({
             "pozitsiya": pelmeshki.pozitsiya.copy(),
             "vremya": 0.0
         })
-#Логика получения урона
+
 
 def nanesti_uron(atakuyushiy, zashchitnik):
     if atakuyushiy.zdorovie <= 0 or zashchitnik.zdorovie <= 0:
-        return
-
-    fakt_uron = max(
-        0,
-        atakuyushiy.uron * (1 - zashchitnik.bronya / 100)
-    )
+        return 0
+    bronya = max(0, min(100, zashchitnik.bronya))
+    fakt_uron = max(0, atakuyushiy.uron * (1 - bronya / 100))
+    fakt_uron = min(fakt_uron, zashchitnik.zdorovie)
 
     if fakt_uron >= zashchitnik.zdorovie:
         zashchitnik.umeret()
     else:
         zashchitnik.zdorovie -= fakt_uron
+    return fakt_uron
+
+
+def rasschitat_boy(levyy, pravyy):
+    # Победитель известен ещё до анимации. Иначе пришлось бы запускать ИИ для каждого муравья.
+    def sila(gruppa):
+        zaschita = max(0.05, 1 - max(0, min(95, gruppa.bronya)) / 100)
+        return gruppa.kolichestvo * max(0, gruppa.uron) * max(0, gruppa.max_zdorovie) / zaschita
+
+    sila_levogo = sila(levyy)
+    sila_pravogo = sila(pravyy)
+    kol_levogo = levyy.kolichestvo
+    kol_pravogo = pravyy.kolichestvo
+
+    if sila_levogo == sila_pravogo:
+        vyzhilo_levogo = 0
+        vyzhilo_pravogo = 0
+        pobeditel = "nichya"
+    else:
+        pobeditel = "igrok" if sila_levogo > sila_pravogo else "vrag"
+        pobedivshih = levyy if pobeditel == "igrok" else pravyy
+        sila_pobedy = max(sila_levogo, sila_pravogo)
+        sila_porazheniya = min(sila_levogo, sila_pravogo)
+
+        # Чем больше силы, тем больше потери. У победителя останется хотя бы один живой.
+        dolya_poter = (sila_porazheniya / sila_pobedy) ** 1.5
+        umerlo_u_pobeditelya = min(
+            pobedivshih.kolichestvo - 1,
+            round(pobedivshih.kolichestvo * dolya_poter)
+        )
+        vyzhilo = pobedivshih.kolichestvo - umerlo_u_pobeditelya
+        vyzhilo_levogo = vyzhilo if pobeditel == "igrok" else 0
+        vyzhilo_pravogo = vyzhilo if pobeditel == "vrag" else 0
+
+    return {
+        "sila_levogo": sila_levogo,
+        "sila_pravogo": sila_pravogo,
+        "do_levogo": kol_levogo,
+        "do_pravogo": kol_pravogo,
+        "posle_levogo": vyzhilo_levogo,
+        "posle_pravogo": vyzhilo_pravogo,
+        "pobeditel": pobeditel
+    }
+
+
+class Avtoboy:
+    def __init__(self, levyy, pravyy, kadry):
+        self.levyy = levyy
+        self.pravyy = pravyy
+        self.kadry = kadry
+        self.itog = rasschitat_boy(levyy, pravyy)
+        self.vremya = 0.0
+        self.stadiya = "bitva"
+
+        self.panel = pygame.Rect(245, 80, 1110, 740)
+        self.arena = pygame.Rect(287, 255, 1026, 355)
+        self.knopka = pygame.Rect(630, 719, 340, 59)
+        self.fon_zatemneniya = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        self.fon_zatemneniya.fill((9, 17, 25, 205))
+
+        self.sh_zagolovok = pygame.font.SysFont("arial", 29, bold=True)
+        self.sh_krupnyy = pygame.font.SysFont("arial", 42, bold=True)
+        self.sh_obychniy = pygame.font.SysFont("arial", 22, bold=True)
+        self.sh_malyy = pygame.font.SysFont("arial", 18)
+
+        koord_zashchitnika = (pravyy.kletka.col, pravyy.kletka.row)
+        tip_polya_boya = provintsii_kletok.get(koord_zashchitnika, "polya")
+        self.palette = self.poluchit_paltru_boya(tip_polya_boya)
+
+        # На больших отрядах ужимаем отдельные спрайты, но не подменяем армию одной картинкой.
+        self.figury_levogo, size_l = self.sozdat_figury(
+            self.itog["do_levogo"], self.itog["posle_levogo"], "levyy"
+        )
+        self.figury_pravogo, size_p = self.sozdat_figury(
+            self.itog["do_pravogo"], self.itog["posle_pravogo"], "pravyy"
+        )
+        self.sprayty = {}
+        for storona, razmer in (("levyy", size_l), ("pravyy", size_p)):
+            razmer = max(8, razmer)
+            if storona == "pravyy" and pravyy.odin:
+                # Это всё ещё муравей-затычка, просто увеличенный, чтобы одиночный враг не терялся на арене.
+                razmer = 62 if pravyy.tip == "bogomol" else 78
+            self.sprayty[storona] = [
+                pygame.transform.rotate(
+                    pygame.transform.scale(kadr, (razmer, razmer)),
+                    -90 if storona == "levyy" else 90
+                )
+                for kadr in kadry
+            ]
+
+    def poluchit_paltru_boya(self, tip):
+        palitry = {
+            "polya": {
+                "panel": (26, 39, 30),
+                "arena": (74, 101, 69),
+                "niz": (39, 55, 43),
+                "kartochka": (39, 55, 43),
+                "razdelitel": (157, 180, 149),
+                "osnovnoy_tekst": (241, 243, 238),
+                "vtorichnyy_tekst": (199, 214, 199),
+                "levyy_tekst": (202, 233, 198),
+                "pravyy_tekst": (242, 214, 188),
+                "levaya_sila": (202, 233, 198),
+                "pravaya_sila": (242, 214, 188),
+                "vs": (245, 217, 151),
+                "knopka": (84, 118, 76),
+                "knopka_hover": (97, 136, 88)
+            },
+            "les": {
+                "panel": (16, 29, 20),
+                "arena": (50, 79, 54),
+                "niz": (27, 42, 31),
+                "kartochka": (27, 42, 31),
+                "razdelitel": (126, 155, 126),
+                "osnovnoy_tekst": (239, 243, 239),
+                "vtorichnyy_tekst": (186, 206, 187),
+                "levyy_tekst": (177, 223, 181),
+                "pravyy_tekst": (233, 196, 180),
+                "levaya_sila": (177, 223, 181),
+                "pravaya_sila": (233, 196, 180),
+                "vs": (241, 212, 146),
+                "knopka": (55, 95, 60),
+                "knopka_hover": (69, 112, 75)
+            },
+            "gory": {
+                "panel": (32, 36, 40),
+                "arena": (99, 104, 108),
+                "niz": (45, 49, 55),
+                "kartochka": (45, 49, 55),
+                "razdelitel": (171, 177, 183),
+                "osnovnoy_tekst": (243, 244, 245),
+                "vtorichnyy_tekst": (206, 211, 215),
+                "levyy_tekst": (194, 228, 211),
+                "pravyy_tekst": (238, 206, 194),
+                "levaya_sila": (194, 228, 211),
+                "pravaya_sila": (238, 206, 194),
+                "vs": (246, 219, 161),
+                "knopka": (87, 97, 104),
+                "knopka_hover": (104, 115, 123)
+            },
+            "pustynya": {
+                "panel": (53, 41, 23),
+                "arena": (154, 126, 74),
+                "niz": (70, 56, 33),
+                "kartochka": (70, 56, 33),
+                "razdelitel": (216, 190, 133),
+                "osnovnoy_tekst": (249, 244, 233),
+                "vtorichnyy_tekst": (232, 217, 188),
+                "levyy_tekst": (214, 235, 185),
+                "pravyy_tekst": (249, 212, 183),
+                "levaya_sila": (228, 232, 175),
+                "pravaya_sila": (247, 214, 184),
+                "vs": (255, 228, 159),
+                "knopka": (124, 98, 55),
+                "knopka_hover": (145, 116, 67)
+            },
+            "plyazh": {
+                "panel": (48, 44, 31),
+                "arena": (184, 170, 123),
+                "niz": (65, 60, 43),
+                "kartochka": (65, 60, 43),
+                "razdelitel": (228, 214, 161),
+                "osnovnoy_tekst": (247, 245, 236),
+                "vtorichnyy_tekst": (226, 218, 189),
+                "levyy_tekst": (208, 231, 190),
+                "pravyy_tekst": (246, 209, 183),
+                "levaya_sila": (208, 231, 190),
+                "pravaya_sila": (246, 209, 183),
+                "vs": (255, 228, 165),
+                "knopka": (118, 109, 77),
+                "knopka_hover": (139, 128, 92)
+            },
+            "voda": {
+                "panel": (18, 32, 45),
+                "arena": (54, 95, 130),
+                "niz": (29, 48, 66),
+                "kartochka": (29, 48, 66),
+                "razdelitel": (142, 176, 205),
+                "osnovnoy_tekst": (239, 244, 247),
+                "vtorichnyy_tekst": (195, 213, 224),
+                "levyy_tekst": (192, 227, 215),
+                "pravyy_tekst": (240, 206, 197),
+                "levaya_sila": (192, 227, 215),
+                "pravaya_sila": (240, 206, 197),
+                "vs": (247, 224, 165),
+                "knopka": (50, 82, 108),
+                "knopka_hover": (63, 101, 132)
+            }
+        }
+        return palitry.get(tip, palitry["polya"])
+
+    def sozdat_figury(self, kolichestvo, vyzhilo, storona):
+        stolbtsy = max(1, min(17, math.ceil(math.sqrt(kolichestvo * 1.6))))
+        ryady = math.ceil(kolichestvo / stolbtsy)
+        interval = min(43, 330 / max(1, stolbtsy), 290 / max(1, ryady))
+        razmer = max(8, int(min(35, interval * 0.80)))
+        nachalnyy_x = self.arena.left + 165 if storona == "levyy" else self.arena.right - 165
+        konechnyy_x = self.arena.centerx - 88 if storona == "levyy" else self.arena.centerx + 88
+        tsentr_y = self.arena.centery + 23
+
+        figury = []
+        for i in range(kolichestvo):
+            col = i % stolbtsy
+            row = i // stolbtsy
+            dx = (col - (stolbtsy - 1) / 2) * interval
+            dy = (row - (ryady - 1) / 2) * interval
+            figury.append({
+                "start": (nachalnyy_x + dx, tsentr_y + dy),
+                "konets": (konechnyy_x + dx, tsentr_y + dy),
+                "smert": None,
+                "otstup": (i % 3 - 1) * 2
+            })
+
+        # Кого именно убрать — выбираем один раз. В кадрах затем нет никакой случайной боевой логики.
+        indeksi = list(range(kolichestvo))
+        random.Random(kolichestvo * 97 + vyzhilo * 17).shuffle(indeksi)
+        skolko_umerlo = kolichestvo - vyzhilo
+        for poriadok, i in enumerate(indeksi[:skolko_umerlo]):
+            figury[i]["smert"] = 2.8 + (poriadok + 1) / (skolko_umerlo + 1) * 4.8
+
+        return figury, razmer
+
+    def obnovit(self, delta_time):
+        if self.stadiya != "bitva":
+            return
+        self.vremya += delta_time
+        if self.vremya >= 8.2:
+            self.vremya = 8.2
+            self.stadiya = "rezultat"
+
+    def zavershit(self):
+        # Только после экрана результата переносим потери на карту.
+        for gruppa, kluch in (
+            (self.levyy, "posle_levogo"),
+            (self.pravyy, "posle_pravogo")
+        ):
+            vyzhilo = self.itog[kluch]
+            if vyzhilo <= 0:
+                gruppa.umeret()
+            else:
+                gruppa.kolichestvo = vyzhilo
+            gruppa.vrag_dlya_boya = None
+
+    def obrabotat_nazhatie(self, pozitsiya):
+        if self.stadiya == "rezultat" and self.knopka.collidepoint(pozitsiya):
+            self.zavershit()
+            return True
+        return False
+
+    def tekst(self, poverhnost, fraza, shrift, cvet, tocka, vyrovnyat="center"):
+        nadpis = shrift.render(str(fraza), True, cvet)
+        rect = nadpis.get_rect()
+        setattr(rect, vyrovnyat, tocka)
+        poverhnost.blit(nadpis, rect)
+
+    def oformit_podlozhku(self, poverhnost):
+        poverhnost.blit(self.fon_zatemneniya, (0, 0))
+        pygame.draw.rect(poverhnost, self.palette["panel"], self.panel)
+
+    def narisovat_figury(self, poverhnost, figury, storona):
+        # Армии сходятся, потом слегка дёргаются в ближнем бою; погибшие плавно растворяются.
+        priblizhenie = max(0, min(1, (self.vremya - 0.65) / 1.7))
+        priblizhenie = priblizhenie * priblizhenie * (3 - 2 * priblizhenie)
+        kadr = int(self.vremya / 0.12) % len(self.sprayty[storona])
+        if self.vremya < 0.65:
+            kadr = 0
+        for i, figura in enumerate(figury):
+            smert = figura["smert"]
+            if smert is not None and self.vremya >= smert + 0.34:
+                continue
+            alfa = 255
+            if smert is not None and self.vremya >= smert:
+                alfa = max(0, int(255 * (1 - (self.vremya - smert) / 0.34)))
+
+            x1, y1 = figura["start"]
+            x2, y2 = figura["konets"]
+            x = x1 + (x2 - x1) * priblizhenie
+            y = y1 + (y2 - y1) * priblizhenie
+            if 2.35 < self.vremya < 7.7:
+                storona_udara = 1 if storona == "levyy" else -1
+                x += storona_udara * math.sin(self.vremya * 10 + i * 1.3) * 6
+                y += math.sin(self.vremya * 7 + i * 0.8) * 3
+
+            kartinka = self.sprayty[storona][kadr]
+            if alfa != 255:
+                kartinka = kartinka.copy()
+                kartinka.set_alpha(alfa)
+            rect = kartinka.get_rect(center=(round(x), round(y)))
+            poverhnost.blit(kartinka, rect)
+
+    def narisovat_bitvu(self, poverhnost):
+        self.tekst(
+            poverhnost, "ВАША КОЛОНИЯ", self.sh_malyy,
+            self.palette["levyy_tekst"], (self.panel.left + 48, self.panel.top + 116), "midleft"
+        )
+        nazvanie_vraga = self.pravyy.nazvanie.upper() if self.pravyy.odin else "ПРОТИВНИК"
+        self.tekst(
+            poverhnost, nazvanie_vraga, self.sh_malyy,
+            self.palette["pravyy_tekst"], (self.panel.right - 48, self.panel.top + 116), "midright"
+        )
+
+        def ostalos(figury):
+            return sum(
+                1 for figura in figury
+                if figura["smert"] is None or figura["smert"] > self.vremya
+            )
+
+        self.tekst(
+            poverhnost, f"{ostalos(self.figury_levogo)} муравьёв",
+            self.sh_obychniy, self.palette["osnovnoy_tekst"],
+            (self.panel.left + 48, self.panel.top + 146), "midleft"
+        )
+        kolichestvo_vraga = (
+            f"{ostalos(self.figury_pravogo)} из 1"
+            if self.pravyy.odin
+            else f"{ostalos(self.figury_pravogo)} муравьёв"
+        )
+        self.tekst(
+            poverhnost, kolichestvo_vraga,
+            self.sh_obychniy, self.palette["osnovnoy_tekst"],
+            (self.panel.right - 48, self.panel.top + 146), "midright"
+        )
+
+        pygame.draw.rect(poverhnost, self.palette["arena"], self.arena)
+        self.narisovat_figury(poverhnost, self.figury_levogo, "levyy")
+        self.narisovat_figury(poverhnost, self.figury_pravogo, "pravyy")
+
+        self.tekst(
+            poverhnost, f"Сила: {self.itog['sila_levogo']:,.0f}".replace(",", " "),
+            self.sh_obychniy, self.palette["levaya_sila"],
+            (self.arena.left + 20, self.arena.bottom + 30), "midleft"
+        )
+        self.tekst(
+            poverhnost, f"Сила: {self.itog['sila_pravogo']:,.0f}".replace(",", " "),
+            self.sh_obychniy, self.palette["pravaya_sila"],
+            (self.arena.right - 20, self.arena.bottom + 30), "midright"
+        )
+
+        pygame.draw.rect(
+            poverhnost, self.palette["niz"],
+            (self.panel.left + 42, self.panel.bottom - 95, self.panel.width - 84, 64)
+        )
+        self.tekst(
+            poverhnost, "Бой идёт автоматически…", self.sh_obychniy,
+            self.palette["vs"], (self.panel.centerx, self.panel.bottom - 72)
+        )
+        self.tekst(
+            poverhnost, "Результаты появятся после окончания сражения",
+            self.sh_malyy, self.palette["vtorichnyy_tekst"],
+            (self.panel.centerx, self.panel.bottom - 46)
+        )
+
+    def narisovat_rezultat(self, poverhnost):
+        pobeditel = self.itog["pobeditel"]
+        if pobeditel == "igrok":
+            zagolovok = "ПОБЕДА"
+            cvet_zagolovka = (137, 225, 169)
+            podzagolovok = "Ваша группа выиграла сражение"
+        elif pobeditel == "vrag":
+            zagolovok = "ПОРАЖЕНИЕ"
+            cvet_zagolovka = (240, 139, 128)
+            podzagolovok = "Победила вражеская группа"
+        else:
+            zagolovok = "НИЧЬЯ"
+            cvet_zagolovka = (249, 216, 157)
+            podzagolovok = "Обе группы уничтожены"
+
+        self.tekst(
+            poverhnost, zagolovok, self.sh_krupnyy, cvet_zagolovka,
+            (self.panel.centerx, self.panel.top + 125)
+        )
+        self.tekst(
+            poverhnost, podzagolovok, self.sh_obychniy, self.palette["vtorichnyy_tekst"],
+            (self.panel.centerx, self.panel.top + 175)
+        )
+
+        for x, cifra, podpis, cvet in (
+            (self.panel.left + 150, self.itog["posle_levogo"], "Выжило", (150, 231, 183)),
+            (self.panel.left + 600, self.itog["do_levogo"] - self.itog["posle_levogo"],
+             "Погибло", (247, 151, 142))
+        ):
+            kartochka = pygame.Rect(x, self.panel.top + 225, 360, 155)
+            pygame.draw.rect(poverhnost, self.palette["kartochka"], kartochka)
+            self.tekst(poverhnost, str(cifra), self.sh_krupnyy,
+                       cvet, (kartochka.centerx, kartochka.top + 62))
+            self.tekst(poverhnost, podpis, self.sh_obychniy,
+                       self.palette["vtorichnyy_tekst"], (kartochka.centerx, kartochka.bottom - 36))
+
+        stat = pygame.Rect(self.panel.left + 150, self.panel.top + 415, 810, 105)
+        pygame.draw.rect(poverhnost, self.palette["kartochka"], stat)
+        self.tekst(poverhnost, "Ваша группа", self.sh_obychniy, self.palette["osnovnoy_tekst"],
+                   (stat.left + 28, stat.top + 32), "midleft")
+        self.tekst(poverhnost, f"{self.itog['posle_levogo']} / {self.itog['do_levogo']}",
+                   self.sh_obychniy, self.palette["osnovnoy_tekst"],
+                   (stat.right - 28, stat.top + 32), "midright")
+        self.tekst(poverhnost, "Вражеская группа", self.sh_obychniy,
+                   self.palette["osnovnoy_tekst"], (stat.left + 28, stat.bottom - 30), "midleft")
+        self.tekst(poverhnost, f"{self.itog['posle_pravogo']} / {self.itog['do_pravogo']}",
+                   self.sh_obychniy, self.palette["osnovnoy_tekst"],
+                   (stat.right - 28, stat.bottom - 30), "midright")
+
+        mysh = pygame.mouse.get_pos()
+        cvet = self.palette["knopka_hover"] if self.knopka.collidepoint(mysh) else self.palette["knopka"]
+        pygame.draw.rect(poverhnost, cvet, self.knopka)
+        self.tekst(
+            poverhnost, "Вернуться на карту", self.sh_obychniy,
+            self.palette["osnovnoy_tekst"], self.knopka.center
+        )
+
+    def narisovat(self, poverhnost):
+        self.oformit_podlozhku(poverhnost)
+        if self.stadiya == "bitva":
+            self.narisovat_bitvu(poverhnost)
+        else:
+            self.narisovat_rezultat(poverhnost)
 
 
 
@@ -434,6 +864,7 @@ def hex_under_mouse(grid):
         return closest_hex
     return None
 
+
 def nayti_sosedey(kletka, hex_grid):
     col = kletka.col
     row = kletka.row
@@ -458,9 +889,13 @@ def nayti_sosedey(kletka, hex_grid):
         if koord in hex_grid
     ]
 
+
+
+# Все достижимые клетки и предшественники маршрута
+
 def nayti_dostupnye_kletki(muravey):
     nachalo = (muravey.kletka.col, muravey.kletka.row)
-
+    # Тут считаем реальные затраты на клетки.
     ochered = [(0, nachalo)]
     rashody = {nachalo: 0}
     otkuda = {}
@@ -473,10 +908,10 @@ def nayti_dostupnye_kletki(muravey):
 
     while ochered:
         rashod, koord = heapq.heappop(ochered)
-
         if rashod > rashody[koord]:
             continue
 
+        # Вода допускается как конечная ловушка.
         if koord != nachalo:
             tip = provintsii_kletok[koord]
             if tipy_provintsiy[tip].get("smertelna", False):
@@ -484,23 +919,19 @@ def nayti_dostupnye_kletki(muravey):
 
         for sosed in nayti_sosedey(hex_grid[koord], hex_grid):
             novye_koord = (sosed.col, sosed.row)
-
             if novye_koord in zanyatye:
                 continue
 
             tip = provintsii_kletok[novye_koord]
             svoystva = tipy_provintsiy[tip]
-
             if not svoystva.get("prohodima", True):
                 continue
 
             cena = svoystva["stoimost"]
-
             if cena is None or cena < 0:
                 continue
 
             novyy_rashod = rashod + cena
-
             if novyy_rashod > muravey.ostalos_hodov:
                 continue
 
@@ -509,37 +940,77 @@ def nayti_dostupnye_kletki(muravey):
                 otkuda[novye_koord] = koord
                 heapq.heappush(ochered, (novyy_rashod, novye_koord))
 
-    rashody.pop(nachalo)
+    rashody.pop(nachalo, None)
     return rashody, otkuda
 
-"""Инициализация:"""
+
+def nayti_podhod_k_vragu(muravey, vrag, dostupnye=None):
+    if (muravey.zdorovie <= 0 or vrag.zdorovie <= 0
+            or muravey.komanda == vrag.komanda
+            or muravey.atakoval_v_etom_hodu or muravey.marshrut
+            or vrag.marshrut):
+        return None
+
+    # Если уже в упор, то на атаку очки движения не нужны.
+    if muravey.kletka.is_has_neighbor(vrag.kletka):
+        return muravey.kletka
+
+    if muravey.ostalos_hodov <= 0:
+        return None
+
+    if dostupnye is None:
+        dostupnye, _ = nayti_dostupnye_kletki(muravey)
+
+    varianty = []
+    for kletka in nayti_sosedey(vrag.kletka, hex_grid):
+        koord = (kletka.col, kletka.row)
+        if koord not in dostupnye:
+            continue
+        tip = provintsii_kletok[koord]
+        if tipy_provintsiy[tip].get("smertelna", False):
+            continue
+        varianty.append((dostupnye[koord], kletka.col, kletka.row))
+
+    if not varianty:
+        return None
+
+    _, col, row = min(varianty)
+    return hex_grid[(col, row)]
+
+
+
+# Инициализация карты
 hex_grid = create_hex_grid(HEX_GRID_WIDTH, HEX_GRID_HEIGHT, HEX_GRID_RADIUS)
-
 put_karty = os.path.join(data_dir, "karta_provintsiy.json")
-
-provintsii_kletok = {
-    koord: "polya" for koord in hex_grid
-}
+provintsii_kletok = {koord: "polya" for koord in hex_grid}
 
 if os.path.exists(put_karty):
     with open(put_karty, "r", encoding="utf-8") as fail:
         sohranennye = json.load(fail)
-
     for koord, tip in sohranennye.items():
         col, row = map(int, koord.split(","))
-
         if (col, row) in hex_grid and tip in tipy_provintsiy:
             provintsii_kletok[(col, row)] = tip
 
 setka_sloy = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
 
 muravi = [
-    Muravey("rabochiy", hex_grid[(4, 4)]),
-    Muravey("soldat", hex_grid[(6, 4)])
+    Muravey("rabochiy", hex_grid[(4, 4)], "igrok", 12),
+    Muravey("soldat", hex_grid[(6, 4)], "igrok", 12),
+    Muravey("soldat", hex_grid[(10, 4)], "vrag", 9),
+    Muravey("bogomol", hex_grid[(12, 4)], "vrag", 1),
+    Muravey("tarantul", hex_grid[(16, 5)], "vrag", 1)
 ]
 
 vybrannyy_muravey = None
+tsel_ataki = None
+avtoboy = None
+shrift_kolichestva = pygame.font.SysFont("arial", 13, bold=True)
+shrift_imen_vragov = pygame.font.SysFont("arial", 12, bold=True)
 
+effekty_smerti = []
+shrift_smerti = pygame.font.SysFont("arial", 12, bold=True)
+tekst_smerti = shrift_smerti.render("Смерть", True, (255, 255, 255))
 
 resources = {
     "wood": 50,
@@ -547,18 +1018,15 @@ resources = {
 }
 resource_emojis = {
     "wood": "🌲",
-    "stone": "🪨",
+    "stone": "🪨"
 }
-
 building_textures = {
     "Муравейник": ant_house_img
 }
-
 hud = HUD(1600, 900, building_textures, resources, resource_emojis)
 
 redaktor = False
 tip_kisti = "les"
-
 knopki_tipov = {
     pygame.K_1: "polya",
     pygame.K_2: "les",
@@ -567,7 +1035,6 @@ knopki_tipov = {
     pygame.K_5: "plyazh",
     pygame.K_6: "voda"
 }
-
 cveta_tipov = {
     "polya": (120, 200, 100, 90),
     "les": (20, 110, 40, 110),
@@ -577,123 +1044,72 @@ cveta_tipov = {
     "voda": (30, 100, 210, 110)
 }
 
-effekty_smerti = []
-
-shrift_smerti = pygame.font.SysFont("arial", 12, bold=True)
-tekst_smerti = shrift_smerti.render("Смерть", True, (255, 255, 255))
-
 while running:
-    
-    hud.update()
-    
-    delta_time = clock.tick(60) / 1000 #кол-во фпс на рендеринг
-    delta_time = max(0.001, min(0.1, delta_time)) #убираем терринг при проблемы с кол-во кадров если слишком много или мало
-
-    for muravey in muravi:
-        muravey.obnovit(delta_time)
-
-    x += 50 * delta_time
+    delta_time = max(0.001, min(0.1, clock.tick(60) / 1000))
     mouse_pos = pygame.mouse.get_pos()
 
-    if vybrannyy_muravey is not None:
-        if (vybrannyy_muravey.ostalos_hodov <= 0
-                or vybrannyy_muravey.zdorovie <= 0):
-            vybrannyy_muravey = None
-
-    screen.fill((128, 128, 128)) 
-    screen.blit(stonewall1_img, (x, 500))
-    screen.blit(scaled_map_img, (0,0))
-    
-    if hud.is_mouse_over(mouse_pos):
-        hovered_tile = None
+    # Пока идёт автобой, стратегическая карта полностью ждёт.
+    if avtoboy is not None:
+        avtoboy.obnovit(delta_time)
     else:
-        hovered_tile = hex_under_mouse(hex_grid)
+        x += 50 * delta_time
+        for muravey in muravi:
+            muravey.obnovit(delta_time)
 
-    if redaktor and hovered_tile is not None:
-        if pygame.mouse.get_pressed()[0]:
-            koord = (hovered_tile.col, hovered_tile.row)
-            provintsii_kletok[koord] = tip_kisti
-
-    setka_sloy.fill((0, 0, 0, 0))
-
-    if not redaktor and vybrannyy_muravey is not None:
-        if vybrannyy_muravey.zdorovie > 0:
-            dostupnye, otkuda = nayti_dostupnye_kletki(vybrannyy_muravey)
-
-            for koord in dostupnye:
-                kletka = hex_grid[koord]
-
-                pygame.draw.polygon(
-                    setka_sloy,
-                    (40, 200, 75, 85),
-                    kletka.table_points
-                )
-
-    if redaktor:
-        for koord, tip in provintsii_kletok.items():
-            if tip == "polya":
+        for muravey in muravi:
+            vrag = muravey.vrag_dlya_boya
+            if vrag is None or muravey.marshrut:
                 continue
+            muravey.vrag_dlya_boya = None
+            if (muravey.zdorovie > 0 and vrag.zdorovie > 0
+                    and muravey.kolichestvo > 0 and vrag.kolichestvo > 0
+                    and muravey.kletka.is_has_neighbor(vrag.kletka)):
+                avtoboy = Avtoboy(muravey, vrag, kadry_muravya)
+                break
 
-            kletka = hex_grid[koord]
-
-            pygame.draw.polygon(
-                setka_sloy,
-                cveta_tipov[tip],
-                kletka.table_points
+        if vybrannyy_muravey is not None:
+            mozhet_atakovat_ryadom = (
+                not vybrannyy_muravey.atakoval_v_etom_hodu
+                and any(
+                    drugoy.zdorovie > 0
+                    and drugoy.komanda != vybrannyy_muravey.komanda
+                    and vybrannyy_muravey.kletka.is_has_neighbor(drugoy.kletka)
+                    for drugoy in muravi
+                )
             )
+            if (vybrannyy_muravey.zdorovie <= 0
+                    or vybrannyy_muravey.marshrut
+                    or (vybrannyy_muravey.ostalos_hodov <= 0
+                        and not mozhet_atakovat_ryadom)):
+                vybrannyy_muravey = None
+                tsel_ataki = None
 
-    for tile in hex_grid.values():
-        tile.draw(setka_sloy, color=(200, 200, 200, 90), thick=3)
+        if tsel_ataki is not None:
+            if tsel_ataki.zdorovie <= 0 or vybrannyy_muravey is None:
+                tsel_ataki = None
 
-    if hovered_tile is not None:
-        hovered_tile.draw(setka_sloy, color=(255, 255, 0, 180), thick=6)
+        hud.update()
 
-    if not redaktor and vybrannyy_muravey is not None:
-        if vybrannyy_muravey.zdorovie > 0:
-            pygame.draw.polygon(
-                setka_sloy,
-                (255, 215, 0, 110),
-                vybrannyy_muravey.kletka.table_points
-            )
-
-    screen.blit(setka_sloy, (0, 0))
-
-    for muravey in muravi:
-        muravey.narisovat(screen, kadry_muravya)
-
-    for effekt in effekty_smerti[:]:
-        effekt["vremya"] += delta_time
-        vremya = effekt["vremya"]
-
-        if vremya >= 3.0:
-            effekty_smerti.remove(effekt)
+    boy_zakryvalsya_v_etom_kadre = avtoboy is not None
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
             continue
 
-        if vremya < 0.8:
-            alfa = int(255 * vremya / 0.8)
-        elif vremya < 1.4:
-            alfa = 255
-        else:
-            alfa = int(255 * (1 - (vremya - 1.4) / 1.6))
-
-        nadpis = tekst_smerti.copy()
-        nadpis.set_alpha(alfa)
-
-        mesto = nadpis.get_rect(
-            center=effekt["pozitsiya"]
-        )
-
-        screen.blit(nadpis, mesto)
-
-    test_button = TestButton("КЛИК НА МЕНЯ", 250, 250, True)
-
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT: #закрыть полностью игру при нажатие на крестик сверху
-            running = False
+        if boy_zakryvalsya_v_etom_kadre:
+            # Даже после клика «Вернуться» остатки событий этого кадра не пускаем на карту.
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if avtoboy.obrabotat_nazhatie(event.pos):
+                    avtoboy = None
+                    vybrannyy_muravey = None
+                    tsel_ataki = None
+            continue
 
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_F2:
                 redaktor = not redaktor
+                vybrannyy_muravey = None
+                tsel_ataki = None
                 print("Редактор:", redaktor)
 
             if redaktor and event.key in knopki_tipov:
@@ -706,66 +1122,176 @@ while running:
                     for (col, row), tip in provintsii_kletok.items()
                     if tip != "polya"
                 }
-
                 with open(put_karty, "w", encoding="utf-8") as fail:
-                    json.dump(
-                        dannye_karty,
-                        fail,
-                        ensure_ascii=False,
-                        indent=2
-                    )
-
+                    json.dump(dannye_karty, fail, ensure_ascii=False, indent=2)
                 print("Карта сохранена!")
 
             if event.key == pygame.K_n and not redaktor:
-                for muravey in muravi:
-                    if muravey.zdorovie > 0:
-                        muravey.ostalos_hodov = muravey.prohodimost
-
-                print("Новый ход!")
+                if all(not muravey.marshrut for muravey in muravi):
+                    for muravey in muravi:
+                        if muravey.zdorovie > 0:
+                            muravey.ostalos_hodov = muravey.prohodimost
+                            muravey.atakoval_v_etom_hodu = False
+                    vybrannyy_muravey = None
+                    tsel_ataki = None
+                    print("Новый ход!")
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 3:
                 vybrannyy_muravey = None
+                tsel_ataki = None
 
-            if event.button == 1 and not hud.is_mouse_over(mouse_pos) and not redaktor:
+            if event.button == 1 and not redaktor and not hud.is_mouse_over(event.pos):
                 kletka = hex_under_mouse(hex_grid)
+                if kletka is None:
+                    continue
 
-                if kletka is not None:
-                    nazhatyy_muravey = None
+                nazhatyy_muravey = None
+                for muravey in muravi:
+                    if muravey.kletka is kletka and muravey.zdorovie > 0:
+                        nazhatyy_muravey = muravey
+                        break
 
-                    for muravey in muravi:
-                        if muravey.kletka is kletka and muravey.zdorovie > 0:
-                            nazhatyy_muravey = muravey
-                            break
-
-                    if nazhatyy_muravey is not None:
-                        if nazhatyy_muravey.ostalos_hodov > 0:
+                if nazhatyy_muravey is not None:
+                    if nazhatyy_muravey.komanda == "igrok":
+                        tsel_ataki = None
+                        mozhet_atakovat = (
+                            not nazhatyy_muravey.atakoval_v_etom_hodu
+                            and any(
+                                drugoy.zdorovie > 0
+                                and drugoy.komanda != nazhatyy_muravey.komanda
+                                and nazhatyy_muravey.kletka.is_has_neighbor(drugoy.kletka)
+                                for drugoy in muravi
+                            )
+                        )
+                        if (not nazhatyy_muravey.marshrut
+                                and (nazhatyy_muravey.ostalos_hodov > 0
+                                     or mozhet_atakovat)):
                             vybrannyy_muravey = nazhatyy_muravey
                         else:
                             vybrannyy_muravey = None
 
                     elif vybrannyy_muravey is not None:
+                        kletka_podhoda = nayti_podhod_k_vragu(
+                            vybrannyy_muravey, nazhatyy_muravey
+                        )
+                        if kletka_podhoda is None:
+                            tsel_ataki = None
+                            print("Враг недоступен для атаки в этом ходу")
+                        elif tsel_ataki is not nazhatyy_muravey:
+                            tsel_ataki = nazhatyy_muravey
+                            print("Нажми ещё раз по врагу для подтверждения атаки")
+                        else:
+                            if kletka_podhoda is vybrannyy_muravey.kletka:
+                                uspeshno = True
+                            else:
+                                uspeshno = vybrannyy_muravey.peremestitsya(
+                                    kletka_podhoda
+                                )
+                            if uspeshno:
+                                # Подход оплачиваем, а сама атака очки движения не забирает.
+                                vybrannyy_muravey.vrag_dlya_boya = nazhatyy_muravey
+                                vybrannyy_muravey.atakoval_v_etom_hodu = True
+                                vybrannyy_muravey = None
+                            tsel_ataki = None
+                else:
+                    tsel_ataki = None
+                    if vybrannyy_muravey is not None:
                         vybrannyy_muravey.peremestitsya(kletka)
+
+    if hud.is_mouse_over(mouse_pos) or avtoboy is not None:
+        hovered_tile = None
+    else:
+        hovered_tile = hex_under_mouse(hex_grid)
+
+    if (avtoboy is None and redaktor and hovered_tile is not None
+            and pygame.mouse.get_pressed()[0]):
+        koord = (hovered_tile.col, hovered_tile.row)
+        provintsii_kletok[koord] = tip_kisti
+
+    screen.fill((128, 128, 128))
+    screen.blit(stonewall1_img, (x, 500))
+    screen.blit(scaled_map_img, (0, 0))
+
+    setka_sloy.fill((0, 0, 0, 0))
+    if not redaktor and vybrannyy_muravey is not None and avtoboy is None:
+        if vybrannyy_muravey.zdorovie > 0 and not vybrannyy_muravey.marshrut:
+            dostupnye = {}
+            if vybrannyy_muravey.ostalos_hodov > 0:
+                dostupnye, _ = nayti_dostupnye_kletki(vybrannyy_muravey)
+                for koord in dostupnye:
+                    pygame.draw.polygon(
+                        setka_sloy, (40, 200, 75, 85), hex_grid[koord].table_points
+                    )
+
+            # Враги подсвечиваются сами, если до них можно дойти и напасть.
+            if not vybrannyy_muravey.atakoval_v_etom_hodu:
+                for vrag in muravi:
+                    if (vrag.komanda != vybrannyy_muravey.komanda
+                            and vrag.zdorovie > 0
+                            and nayti_podhod_k_vragu(
+                                vybrannyy_muravey, vrag, dostupnye
+                            ) is not None):
+                        pygame.draw.polygon(
+                            setka_sloy, (225, 45, 45, 85), vrag.kletka.table_points
+                        )
+
+            pygame.draw.polygon(
+                setka_sloy, (255, 215, 0, 110),
+                vybrannyy_muravey.kletka.table_points
+            )
+
+    if redaktor:
+        for koord, tip in provintsii_kletok.items():
+            if tip != "polya":
+                pygame.draw.polygon(
+                    setka_sloy, cveta_tipov[tip], hex_grid[koord].table_points
+                )
+
+    for tile in hex_grid.values():
+        tile.draw(setka_sloy, color=(200, 200, 200, 90), thick=3)
+
+    if hovered_tile is not None:
+        hovered_tile.draw(setka_sloy, color=(255, 255, 0, 180), thick=6)
+
+    screen.blit(setka_sloy, (0, 0))
+
+    for muravey in muravi:
+        muravey.narisovat(screen, kadry_muravya)
+
+    if avtoboy is None:
+        for effekt in effekty_smerti[:]:
+            effekt["vremya"] += delta_time
+            vremya = effekt["vremya"]
+            if vremya >= 3.0:
+                effekty_smerti.remove(effekt)
+                continue
+            if vremya < 0.8:
+                alfa = int(255 * vremya / 0.8)
+            elif vremya < 1.4:
+                alfa = 255
+            else:
+                alfa = int(255 * (1 - (vremya - 1.4) / 1.6))
+
+            nadpis = tekst_smerti.copy()
+            nadpis.set_alpha(alfa)
+            mesto = nadpis.get_rect(center=effekt["pozitsiya"])
+            screen.blit(nadpis, mesto)
+
+    test_button = TestButton("КЛИК НА МЕНЯ", 250, 250, True)
 
     if hud.selected_tile is not None and hovered_tile is not None:
         preview_img = hud.selected_tile["icon"].copy()
-        preview_img.set_alpha(160)  # делаем чуть полупрозрачным
+        preview_img.set_alpha(160)
         preview_rect = preview_img.get_rect(center=hovered_tile.center)
         screen.blit(preview_img, preview_rect)
 
     hud.draw(screen)
 
-    """#МЫШКА:
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            print("КЛИК")
-        if event.type == pygame.MOUSEBUTTONUP:
-            print("КЛИК КОНЧИЛСЯ")"""
-    
-    
-    
-    
-    pygame.display.update() #чтобы показывалось изображение
-    
+    # Окно битвы.
+    if avtoboy is not None:
+        avtoboy.narisovat(screen)
+
+    pygame.display.update()
 
 pygame.quit()

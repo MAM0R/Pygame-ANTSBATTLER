@@ -1,0 +1,38 @@
+{
+  "rabochiy": {
+    "nazvanie": "Муравей-рабочий",
+    "zdorovie": 70,
+    "prohodimost": 4,
+    "uron": 5,
+    "bronya": 0,
+    "kolichestvo": 10,
+    "odin": false
+  },
+  "soldat": {
+    "nazvanie": "Муравей-солдат",
+    "zdorovie": 150,
+    "prohodimost": 3,
+    "uron": 50,
+    "bronya": 20,
+    "kolichestvo": 10,
+    "odin": false
+  },
+  "bogomol": {
+    "nazvanie": "Богомол",
+    "zdorovie": 700,
+    "prohodimost": 3,
+    "uron": 100,
+    "bronya": 30,
+    "kolichestvo": 1,
+    "odin": true
+  },
+  "tarantul": {
+    "nazvanie": "Тарантул",
+    "zdorovie": 1300,
+    "prohodimost": 3,
+    "uron": 125,
+    "bronya": 35,
+    "kolichestvo": 1,
+    "odin": true
+  }
+}
