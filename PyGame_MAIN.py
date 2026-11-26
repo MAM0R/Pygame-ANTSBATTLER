@@ -56,9 +56,12 @@ path_map_img = os.path.join(textures_dir, "MainMap.png")
 map_img = pygame.image.load(path_map_img).convert_alpha()
 scaled_map_img = pygame.transform.scale(map_img, screen.get_size())
 
-kartinka_muravya = pygame.image.load(
-    os.path.join(textures_dir, "ant1.png")
-).convert_alpha()
+kadry_muravya = [
+    pygame.image.load(
+        os.path.join(textures_dir, f"ant{i}.png")
+    ).convert_alpha()
+    for i in range(1, 4)
+]
 
 target = pygame.Rect(300, 0, 160, 280)
 collision = hitbox_stonewall1.colliderect(target)
@@ -241,47 +244,121 @@ class Muravey:
         pelmeshki.uron = dannye["uron"]
         pelmeshki.bronya = dannye.get("bronya", 0)
         pelmeshki.kletka = kletka
+        pelmeshki.pozitsiya = pygame.math.Vector2(kletka.center)
+        pelmeshki.marshrut = []
+        pelmeshki.vremya_animatsii = 0.0
+        pelmeshki.skorost_dvizheniya = 160
+        pelmeshki.ugol = 0
 
-    def narisovat(pelmeshki, poverhnost, kartinka):
+    def narisovat(pelmeshki, poverhnost, kadry):
         if pelmeshki.zdorovie <= 0:
             return
 
-        mesto = kartinka.get_rect(center=pelmeshki.kletka.center)
+        if pelmeshki.marshrut:
+            nomer = int(pelmeshki.vremya_animatsii / 0.12) % len(kadry)
+        else:
+            nomer = 0
+
+        kartinka = pygame.transform.rotate(
+            kadry[nomer],
+            pelmeshki.ugol
+        )
+
+        mesto = kartinka.get_rect(center=(
+            round(pelmeshki.pozitsiya.x),
+            round(pelmeshki.pozitsiya.y)
+        ))
+
         poverhnost.blit(kartinka, mesto)
 
     def peremestitsya(pelmeshki, novaya_kletka):
-        if pelmeshki.zdorovie <= 0:
+        if pelmeshki.zdorovie <= 0 or pelmeshki.marshrut:
             return False
 
         if novaya_kletka is None:
             return False
 
         koord = (novaya_kletka.col, novaya_kletka.row)
-
         dostupnye, otkuda = nayti_dostupnye_kletki(pelmeshki)
 
         if koord not in dostupnye:
             return False
 
         stoimost = dostupnye[koord]
+        nachalo = (pelmeshki.kletka.col, pelmeshki.kletka.row)
+
+        put = []
+        tekushchaya = koord
+
+        while tekushchaya != nachalo:
+            put.append(hex_grid[tekushchaya])
+            tekushchaya = otkuda[tekushchaya]
+
+        put.reverse()
 
         pelmeshki.ostalos_hodov -= stoimost
-        pelmeshki.kletka = novaya_kletka
-
-        tip = provintsii_kletok[koord]
-        svoystva = tipy_provintsiy[tip]
-
-        if svoystva.get("smertelna", False):
-            pelmeshki.zdorovie = 0
+        pelmeshki.marshrut = put
+        pelmeshki.vremya_animatsii = 0.0
 
         return True
 
-#Логика получения урона
-def nanesti_uron(atakuyushiy, zashchitnik):
-    fakt_uron = atakuyushiy.uron * (1 - zashchitnik.bronya / 100)
-    zashchitnik.zdorovie = max(0,
-    zashchitnik.zdorovie - fakt_uron)
+    def obnovit(pelmeshki, delta_time):
+        if pelmeshki.zdorovie <= 0 or not pelmeshki.marshrut:
+            return
 
+        pelmeshki.vremya_animatsii += delta_time
+
+        sleduyushchaya = pelmeshki.marshrut[0]
+
+        napravlenie = sleduyushchaya.center - pelmeshki.pozitsiya
+        rasstoyanie = napravlenie.length()
+        shag = pelmeshki.skorost_dvizheniya * delta_time
+
+        if rasstoyanie > 0:
+            pelmeshki.ugol = math.degrees(
+                math.atan2(-napravlenie.y, napravlenie.x)
+            ) - 90
+
+        if rasstoyanie <= shag:
+            pelmeshki.pozitsiya = sleduyushchaya.center.copy()
+            pelmeshki.kletka = sleduyushchaya
+            pelmeshki.marshrut.pop(0)
+
+            koord = (sleduyushchaya.col, sleduyushchaya.row)
+            tip = provintsii_kletok[koord]
+
+            if tipy_provintsiy[tip].get("smertelna", False):
+                pelmeshki.umeret()
+
+        else:
+            pelmeshki.pozitsiya += napravlenie.normalize() * shag
+
+    def umeret(pelmeshki):
+        if pelmeshki.zdorovie <= 0:
+            return
+
+        pelmeshki.zdorovie = 0
+        pelmeshki.marshrut.clear()
+
+        effekty_smerti.append({
+            "pozitsiya": pelmeshki.pozitsiya.copy(),
+            "vremya": 0.0
+        })
+#Логика получения урона
+
+def nanesti_uron(atakuyushiy, zashchitnik):
+    if atakuyushiy.zdorovie <= 0 or zashchitnik.zdorovie <= 0:
+        return
+
+    fakt_uron = max(
+        0,
+        atakuyushiy.uron * (1 - zashchitnik.bronya / 100)
+    )
+
+    if fakt_uron >= zashchitnik.zdorovie:
+        zashchitnik.umeret()
+    else:
+        zashchitnik.zdorovie -= fakt_uron
 
 
 
@@ -500,14 +577,22 @@ cveta_tipov = {
     "voda": (30, 100, 210, 110)
 }
 
+effekty_smerti = []
+
+shrift_smerti = pygame.font.SysFont("arial", 12, bold=True)
+tekst_smerti = shrift_smerti.render("Смерть", True, (255, 255, 255))
+
 while running:
     
     hud.update()
     
     delta_time = clock.tick(60) / 1000 #кол-во фпс на рендеринг
     delta_time = max(0.001, min(0.1, delta_time)) #убираем терринг при проблемы с кол-во кадров если слишком много или мало
+
+    for muravey in muravi:
+        muravey.obnovit(delta_time)
+
     x += 50 * delta_time
-    
     mouse_pos = pygame.mouse.get_pos()
 
     if vybrannyy_muravey is not None:
@@ -574,8 +659,31 @@ while running:
     screen.blit(setka_sloy, (0, 0))
 
     for muravey in muravi:
-        muravey.narisovat(screen, kartinka_muravya)
+        muravey.narisovat(screen, kadry_muravya)
 
+    for effekt in effekty_smerti[:]:
+        effekt["vremya"] += delta_time
+        vremya = effekt["vremya"]
+
+        if vremya >= 3.0:
+            effekty_smerti.remove(effekt)
+            continue
+
+        if vremya < 0.8:
+            alfa = int(255 * vremya / 0.8)
+        elif vremya < 1.4:
+            alfa = 255
+        else:
+            alfa = int(255 * (1 - (vremya - 1.4) / 1.6))
+
+        nadpis = tekst_smerti.copy()
+        nadpis.set_alpha(alfa)
+
+        mesto = nadpis.get_rect(
+            center=effekt["pozitsiya"]
+        )
+
+        screen.blit(nadpis, mesto)
 
     test_button = TestButton("КЛИК НА МЕНЯ", 250, 250, True)
 
