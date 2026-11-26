@@ -47,8 +47,23 @@ running = True #нужно чтобы игра сразу не закрывал�
 x = 1000
 clock = pygame.time.Clock()
 delta_time = 0.1
-font = pygame.font.SysFont("arial", 18) #arial для всего
+font = pygame.font.SysFont("Russo One", 18) #Russo One для всего
 font_smiles = pygame.font.SysFont("segoeuiemoji", 22) #для иконок и смайликов
+if pygame.font.match_font("Russo One") is None:
+    print("Шрифт Russo One не установлен, Pygame использует системную замену.")
+shrifty = {18: font}
+
+
+def poluchit_shrift(razmer):
+    if razmer not in shrifty:
+        shrifty[razmer] = pygame.font.SysFont("Russo One", razmer)
+    return shrifty[razmer]
+
+
+# Размеры шрифтов готовим сразу, а не каждый раз при открытии окна.
+for razmer_shrifta in (12, 13, 16, 20, 21, 22, 26, 27, 29, 30, 42):
+    poluchit_shrift(razmer_shrifta)
+
 r_hex = 26
 HEX_GRID_WIDTH, HEX_GRID_HEIGHT = screen.get_size()
 HEX_GRID_RADIUS = r_hex
@@ -461,8 +476,8 @@ class Animatsiya:
 
 
 class Boets:
-    def __init__(self, gruppa, pozitsiya, razmer, nomer, storona):
-        self.tip = gruppa.tip
+    def __init__(self, gruppa, pozitsiya, razmer, nomer, storona, tip=None):
+        self.tip = tip if tip is not None else gruppa.tip
         self.komanda = gruppa.komanda
         self.storona = storona
         self.nomer = nomer
@@ -511,6 +526,8 @@ class BoevoyII:
         self.ostalos = [itog["do_levogo"], itog["do_pravogo"]]
         self.vyzhivet = [itog["posle_levogo"], itog["posle_pravogo"]]
         self.poteri = [self.ostalos[i] - self.vyzhivet[i] for i in range(2)]
+        self.ostalos_po_tipam = [dict(levyy.sostav), dict(pravyy.sostav)]
+        self.vyzhivet_po_tipam = [dict(itog["sostav_levogo"]), dict(itog["sostav_pravogo"])]
         self.vremya = 0.0
         self.nachalo_udarov = None
         self.zakonchen = False
@@ -525,14 +542,19 @@ class BoevoyII:
         stolbtsy = max(1, math.ceil(math.sqrt(n * 1.45)))
         ryady = math.ceil(n / stolbtsy)
         interval = min((self.arena.width * .37 - 18) / stolbtsy, (self.arena.height - 24) / ryady)
-        razmer = min(units[gruppa.tip]["razmer_v_boyu"], max(5, int(interval * .92)))
+        tipy = [tip for tip, kol in gruppa.sostav.items() for _ in range(kol)]
+        random.shuffle(tipy)
+        max_razmer = max(units[tip]["razmer_v_boyu"] for tip in tipy)
+        razmer = min(max_razmer, max(5, int(interval * .92)))
         shag = min(interval, max(razmer * .95, 17))
         x = self.arena.left + 18 if storona == 0 else self.arena.right - 18
         znak = 1 if storona == 0 else -1
         for i in range(n):
             col, row = i % stolbtsy, i // stolbtsy
             p = (x + znak * (razmer/2 + col * shag), self.arena.centery + (row-(ryady-1)/2)*shag)
-            boets = Boets(gruppa, p, razmer, len(self.boitsy), storona)
+            tip = tipy[i]
+            razmer_boytsa = max(5, round(units[tip]["razmer_v_boyu"] * razmer / max_razmer))
+            boets = Boets(gruppa, p, razmer_boytsa, len(self.boitsy), storona, tip)
             self.boitsy.append(boets)
             self.po_storonam[storona].append(boets)
             self.ogranichit(boets)
@@ -545,7 +567,9 @@ class BoevoyII:
     def nayti_tsel(self, boets, vragi, nagruzka):
         if not vragi:
             return None
-        return min(vragi, key=lambda vrag: boets.pozitsiya.distance_to(vrag.pozitsiya) + nagruzka.get(vrag, 0) * boets.radius * 1.4)
+        # Если у цели уже закончился лимит потерь, ищем другую, пока есть кого добивать.
+        dostupnye = [vrag for vrag in vragi if self.mozhno_ubit(vrag)] or vragi
+        return min(dostupnye, key=lambda vrag: boets.pozitsiya.distance_to(vrag.pozitsiya) + nagruzka.get(vrag, 0) * boets.radius * 1.4)
 
     def nayti_mesto_ataki(self, boets, tsel, zanyatye):
         radius = boets.radius + tsel.radius + boets.dalnost * .65
@@ -608,7 +632,7 @@ class BoevoyII:
         tsel.animatsiya.vspyshka = .09
         tsel.udary += 1
         storona = tsel.storona
-        if self.ostalos[storona] <= self.vyzhivet[storona]:
+        if not self.mozhno_ubit(tsel):
             return
         # Потери считаются заранее, удар только решает, кто именно погибнет.
         proshlo = self.vremya - self.nachalo_udarov
@@ -631,10 +655,15 @@ class BoevoyII:
                 return
         self.ubit(tsel)
 
+    def mozhno_ubit(self, boets):
+        return (boets.zhiv and self.ostalos_po_tipam[boets.storona][boets.tip]
+                > self.vyzhivet_po_tipam[boets.storona].get(boets.tip, 0))
+
     def ubit(self, boets):
-        if boets.zhiv:
+        if self.mozhno_ubit(boets):
             boets.umeret()
             self.ostalos[boets.storona] -= 1
+            self.ostalos_po_tipam[boets.storona][boets.tip] -= 1
 
     def obnovit(self, delta_time):
         self.nakopleno += delta_time
@@ -675,7 +704,8 @@ class BoevoyII:
                     b.pauza = random.uniform(.12,.35)
                     b.animatsiya.ustanovit("pokoy")
                 continue
-            if b.tsel is None or not b.tsel.zhiv:
+            if (b.tsel is None or not b.tsel.zhiv
+                    or (not self.mozhno_ubit(b.tsel) and any(self.mozhno_ubit(v) for v in vragi[1-b.storona]))):
                 b.tsel = self.nayti_tsel(b, vragi[1-b.storona], nagruzka)
                 b.mesto_ataki = None
                 if b.tsel is not None:
@@ -720,7 +750,7 @@ class BoevoyII:
             self.avarijno = self.ostalos != self.vyzhivet
             for i in range(2):
                 kandidaty = sorted((b for b in self.po_storonam[i] if b.zhiv), key=lambda b: -b.udary)
-                for b in kandidaty[:self.ostalos[i]-self.vyzhivet[i]]:
+                for b in kandidaty:
                     self.ubit(b)
             self.zakonchen = True
 
@@ -730,6 +760,16 @@ class BoevoyII:
         for b in sorted(self.boitsy, key=lambda b: (b.zhiv,b.pozitsiya.y)):
             b.narisovat(poverhnost)
         poverhnost.set_clip(staryy_clip)
+
+
+def sila_sostava(sostav):
+    return sum(kol * max(0, units[tip]["uron"]) * max(0, units[tip]["zdorovie"])
+               / max(.05, 1-max(0, min(95, units[tip].get("bronya", 0)))/100)
+               for tip, kol in sostav.items())
+
+
+def yacheyki_sostava(sostav):
+    return sum(kol * units[tip].get("yacheyki", 0) for tip, kol in sostav.items())
 
 
 # Муравьи и их перемещение
@@ -757,23 +797,57 @@ class Muravey:
         pelmeshki.ugol = 0
         pelmeshki.vrag_dlya_boya = None
         pelmeshki.atakoval_v_etom_hodu = False
-        pelmeshki.animatsiya = Animatsiya(tip, komanda, dannye["razmer_na_karte"])
+        pelmeshki.sostav = {tip: pelmeshki.kolichestvo}
+        pelmeshki.animatsii = {}
+        pelmeshki.obnovit_sostav(pelmeshki.sostav)
+
+    def obnovit_sostav(pelmeshki, sostav):
+        # Количество берём из состава, иначе после разделения цифры могут разойтись.
+        pelmeshki.sostav = {tip: sostav[tip] for tip in units if sostav.get(tip, 0) > 0}
+        pelmeshki.kolichestvo = sum(pelmeshki.sostav.values())
+        if not pelmeshki.sostav:
+            pelmeshki.zdorovie = 0
+            return
+        pelmeshki.tip = next(iter(pelmeshki.sostav))
+        dannye = units[pelmeshki.tip]
+        pelmeshki.odin = dannye.get("odin", False)
+        pelmeshki.nazvanie = "Смешанный отряд" if len(pelmeshki.sostav) > 1 else dannye["nazvanie"]
+        pelmeshki.zdorovie = pelmeshki.max_zdorovie = dannye["zdorovie"]
+        pelmeshki.uron = dannye["uron"]
+        pelmeshki.bronya = dannye.get("bronya", 0)
+        pelmeshki.prohodimost = min(units[tip]["prohodimost"] for tip in pelmeshki.sostav)
+        pelmeshki.ostalos_hodov = min(pelmeshki.ostalos_hodov, pelmeshki.prohodimost)
+        # На карте у смешанного отряда два маленьких спрайта вместо одного большого.
+        pelmeshki.animatsii = {
+            tip: Animatsiya(tip, pelmeshki.komanda,
+                           round(units[tip]["razmer_na_karte"] * (.65 if len(pelmeshki.sostav) > 1 else 1)))
+            for tip in pelmeshki.sostav
+        }
+        pelmeshki.animatsiya = pelmeshki.animatsii[pelmeshki.tip]
+
+    def poluchit_silu(pelmeshki):
+        return sila_sostava(pelmeshki.sostav)
+
+    def poluchit_yacheyki(pelmeshki):
+        return yacheyki_sostava(pelmeshki.sostav)
 
     def narisovat(pelmeshki, poverhnost):
         if pelmeshki.zdorovie <= 0:
             return
 
-        kartinka = pelmeshki.animatsiya.kartinka(pelmeshki.ugol)
-        mesto = kartinka.get_rect(center=(
-            round(pelmeshki.pozitsiya.x),
-            round(pelmeshki.pozitsiya.y)
-        ))
-        poverhnost.blit(kartinka, mesto)
+        mesto = None
+        for i, animatsiya in enumerate(pelmeshki.animatsii.values()):
+            kartinka = animatsiya.kartinka(pelmeshki.ugol)
+            sdvig = (i-(len(pelmeshki.animatsii)-1)/2)*21
+            rect = kartinka.get_rect(center=(round(pelmeshki.pozitsiya.x+sdvig),
+                                              round(pelmeshki.pozitsiya.y)))
+            poverhnost.blit(kartinka, rect)
+            mesto = rect if mesto is None else mesto.union(rect)
 
         chislo = shrift_kolichestva.render(str(pelmeshki.kolichestvo), True, (255, 255, 255))
         podlozhka = chislo.get_rect(bottomright=(mesto.right + 4, mesto.bottom + 5))
         podlozhka.inflate_ip(7, 4)
-        pygame.draw.rect(poverhnost, (18, 30, 35), podlozhka, border_radius=5)
+        pygame.draw.rect(poverhnost, (18, 30, 35), podlozhka)
         poverhnost.blit(chislo, chislo.get_rect(center=podlozhka.center))
 
         if pelmeshki.odin:
@@ -806,8 +880,9 @@ class Muravey:
     def obnovit(pelmeshki, delta_time):
         if pelmeshki.zdorovie <= 0:
             return
-        pelmeshki.animatsiya.ustanovit("hodba" if pelmeshki.marshrut else "pokoy")
-        pelmeshki.animatsiya.obnovit(delta_time)
+        for animatsiya in pelmeshki.animatsii.values():
+            animatsiya.ustanovit("hodba" if pelmeshki.marshrut else "pokoy")
+            animatsiya.obnovit(delta_time)
         if not pelmeshki.marshrut:
             return
 
@@ -839,6 +914,7 @@ class Muravey:
             return
         pelmeshki.zdorovie = 0
         pelmeshki.kolichestvo = 0
+        pelmeshki.sostav.clear()
         pelmeshki.marshrut.clear()
         pelmeshki.vrag_dlya_boya = None
         pelmeshki.animatsiya.ustanovit("smert")
@@ -864,13 +940,9 @@ def nanesti_uron(atakuyushiy, zashchitnik):
 
 
 def rasschitat_boy(levyy, pravyy):
-    # Победитель известен ещё до анимации. Иначе пришлось бы запускать ИИ для каждого муравья.
-    def sila(gruppa):
-        zaschita = max(0.05, 1 - max(0, min(95, gruppa.bronya)) / 100)
-        return gruppa.kolichestvo * max(0, gruppa.uron) * max(0, gruppa.max_zdorovie) / zaschita
-
-    sila_levogo = sila(levyy)
-    sila_pravogo = sila(pravyy)
+    # Победителя считаем заранее, ИИ только показывает как прошёл бой.
+    sila_levogo = levyy.poluchit_silu()
+    sila_pravogo = pravyy.poluchit_silu()
     kol_levogo = levyy.kolichestvo
     kol_pravogo = pravyy.kolichestvo
 
@@ -901,8 +973,23 @@ def rasschitat_boy(levyy, pravyy):
         "do_pravogo": kol_pravogo,
         "posle_levogo": vyzhilo_levogo,
         "posle_pravogo": vyzhilo_pravogo,
-        "pobeditel": pobeditel
+        "pobeditel": pobeditel,
+        "sostav_levogo": raspredelit_poteri(levyy.sostav, vyzhilo_levogo),
+        "sostav_pravogo": raspredelit_poteri(pravyy.sostav, vyzhilo_pravogo)
     }
+
+
+def raspredelit_poteri(sostav, vyzhilo):
+    # Округляем потери так, чтобы лишний муравей не появился из-за дробных чисел.
+    vsego = sum(sostav.values())
+    if not vsego:
+        return {}
+    pogiblo = vsego-vyzhilo
+    poteri = {tip: kol*pogiblo//vsego for tip, kol in sostav.items()}
+    ostatok = pogiblo-sum(poteri.values())
+    for tip in sorted(sostav, key=lambda tip: -(sostav[tip]*pogiblo % vsego))[:ostatok]:
+        poteri[tip] += 1
+    return {tip: kol-poteri[tip] for tip, kol in sostav.items() if kol > poteri[tip]}
 
 
 class Avtoboy:
@@ -919,10 +1006,10 @@ class Avtoboy:
         self.fon_zatemneniya = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
         self.fon_zatemneniya.fill((9, 17, 25, 205))
 
-        self.sh_zagolovok = pygame.font.SysFont("arial", 29, bold=True)
-        self.sh_krupnyy = pygame.font.SysFont("arial", 42, bold=True)
-        self.sh_obychniy = pygame.font.SysFont("arial", 22, bold=True)
-        self.sh_malyy = pygame.font.SysFont("arial", 18)
+        self.sh_zagolovok = poluchit_shrift(29)
+        self.sh_krupnyy = poluchit_shrift(42)
+        self.sh_obychniy = poluchit_shrift(22)
+        self.sh_malyy = poluchit_shrift(18)
 
         koord_zashchitnika = (pravyy.kletka.col, pravyy.kletka.row)
         tip_polya_boya = provintsii_kletok.get(koord_zashchitnika, "polya")
@@ -1043,14 +1130,14 @@ class Avtoboy:
     def zavershit(self):
         # Только после экрана результата переносим потери на карту.
         for gruppa, kluch in (
-            (self.levyy, "posle_levogo"),
-            (self.pravyy, "posle_pravogo")
+            (self.levyy, "sostav_levogo"),
+            (self.pravyy, "sostav_pravogo")
         ):
-            vyzhilo = self.itog[kluch]
-            if vyzhilo <= 0:
+            sostav = self.itog[kluch]
+            if not sostav:
                 gruppa.umeret()
             else:
-                gruppa.kolichestvo = vyzhilo
+                gruppa.obnovit_sostav(sostav)
             gruppa.vrag_dlya_boya = None
 
     def obrabotat_nazhatie(self, pozitsiya):
@@ -1293,7 +1380,7 @@ def nayti_sosedey(kletka, hex_grid):
 
 # Все достижимые клетки и предшественники маршрута
 
-def nayti_dostupnye_kletki(muravey):
+def nayti_dostupnye_kletki(muravey, zapas=None):
     nachalo = (muravey.kletka.col, muravey.kletka.row)
     # Тут считаем реальные затраты на клетки.
     ochered = [(0, nachalo)]
@@ -1305,6 +1392,11 @@ def nayti_dostupnye_kletki(muravey):
         for drugoy in muravi
         if drugoy is not muravey and drugoy.zdorovie > 0
     }
+    # Клетки чужого маршрута тоже заняты, иначе два отряда могут прийти в одну точку.
+    zanyatye.update((k.col, k.row) for drugoy in muravi
+                    if drugoy is not muravey and drugoy.zdorovie > 0 for k in drugoy.marshrut)
+    if zapas is None:
+        zapas = muravey.ostalos_hodov
 
     while ochered:
         rashod, koord = heapq.heappop(ochered)
@@ -1332,7 +1424,7 @@ def nayti_dostupnye_kletki(muravey):
                 continue
 
             novyy_rashod = rashod + cena
-            if novyy_rashod > muravey.ostalos_hodov:
+            if novyy_rashod > zapas:
                 continue
 
             if novyy_rashod < rashody.get(novye_koord, float("inf")):
@@ -1403,6 +1495,275 @@ def can_place_building(tile, building_type):
     )
 
 
+# Управление составом отрядов
+
+def nayti_otryad_na_kletke(kletka):
+    return next((m for m in muravi if m.kletka is kletka and m.zdorovie > 0), None)
+
+
+def mozhno_upravlyat(otryad):
+    return (otryad in muravi and otryad.komanda == "igrok" and otryad.zdorovie > 0
+            and not otryad.odin and not otryad.marshrut and otryad.vrag_dlya_boya is None)
+
+
+def cena_obiedineniya(otryad, sosed):
+    if (otryad is sosed or not mozhno_upravlyat(otryad) or not mozhno_upravlyat(sosed)
+            or not otryad.kletka.is_has_neighbor(sosed.kletka) or otryad.ostalos_hodov <= 0):
+        return None
+    dannye = tipy_provintsiy[provintsii_kletok[(sosed.kletka.col, sosed.kletka.row)]]
+    cena = dannye["stoimost"]
+    if (not dannye.get("prohodima", True) or dannye.get("smertelna", False)
+            or cena is None or cena < 0 or cena > otryad.ostalos_hodov):
+        return None
+    if any(sosed.kletka in m.marshrut for m in muravi if m.zdorovie > 0):
+        return None
+    return cena
+
+
+def nachat_obiedinenie(otryad, sosed):
+    cena = cena_obiedineniya(otryad, sosed)
+    if cena is None:
+        return False
+    otryad.ostalos_hodov -= cena
+    otryad.marshrut = [sosed.kletka]
+    return True
+
+
+def obiedinit_otryady(otryad, sosed):
+    if (otryad is sosed or not mozhno_upravlyat(otryad) or not mozhno_upravlyat(sosed)
+            or otryad.kletka is not sosed.kletka):
+        return False
+    sostav = dict(sosed.sostav)
+    for tip, kol in otryad.sostav.items():
+        sostav[tip] = sostav.get(tip, 0) + kol
+    # Берём минимальный остаток, иначе можно будет восстанавливать очки объединением.
+    sosed.ostalos_hodov = min(otryad.ostalos_hodov, sosed.ostalos_hodov)
+    sosed.atakoval_v_etom_hodu = otryad.atakoval_v_etom_hodu or sosed.atakoval_v_etom_hodu
+    sosed.obnovit_sostav(sostav)
+    # Это объединение, а не смерть отряда, поэтому эффект смерти не запускаем.
+    muravi.remove(otryad)
+    otryad.sostav.clear()
+    otryad.kolichestvo = otryad.zdorovie = 0
+    return True
+
+
+def dostupnye_dlya_razdeleniya(otryad, sostav):
+    if not mozhno_upravlyat(otryad) or otryad.ostalos_hodov <= 0:
+        return {}, {}
+    if any(tip not in otryad.sostav or kol < 0 or kol > otryad.sostav[tip]
+           for tip, kol in sostav.items()):
+        return {}, {}
+    sostav = {tip: kol for tip, kol in sostav.items() if kol > 0}
+    if not sostav or sum(sostav.values()) >= otryad.kolichestvo:
+        return {}, {}
+    zapas = min(otryad.ostalos_hodov, *(units[tip]["prohodimost"] for tip in sostav))
+    return nayti_dostupnye_kletki(otryad, zapas)
+
+
+def razdelit_otryad(otryad, sostav, kletka):
+    dostupnye, otkuda = dostupnye_dlya_razdeleniya(otryad, sostav)
+    koord = (kletka.col, kletka.row)
+    if koord not in dostupnye:
+        return None
+    sostav = {tip: kol for tip, kol in sostav.items() if kol > 0}
+    tip = next(iter(sostav))
+    novyy = Muravey(tip, otryad.kletka, otryad.komanda, sostav[tip])
+    novyy.ostalos_hodov = otryad.ostalos_hodov
+    novyy.atakoval_v_etom_hodu = otryad.atakoval_v_etom_hodu
+    novyy.ugol = otryad.ugol
+    novyy.obnovit_sostav(sostav)
+    nachalo = (otryad.kletka.col, otryad.kletka.row)
+    tekushchaya = koord
+    while tekushchaya != nachalo:
+        novyy.marshrut.append(hex_grid[tekushchaya])
+        tekushchaya = otkuda[tekushchaya]
+    novyy.marshrut.reverse()
+    # Старый отряд никуда не идёт, поэтому очки у него остаются.
+    novyy.ostalos_hodov -= dostupnye[koord]
+    otryad.obnovit_sostav({tip: kol-sostav.get(tip, 0) for tip, kol in otryad.sostav.items()})
+    muravi.append(novyy)
+    return novyy
+
+
+def nadpis_na_okne(poverhnost, fraza, tocka, razmer=18, cvet=(241, 243, 238), vyrovnyat="topleft"):
+    kartinka = poluchit_shrift(razmer).render(str(fraza), True, cvet)
+    rect = kartinka.get_rect()
+    setattr(rect, vyrovnyat, tocka)
+    poverhnost.blit(kartinka, rect)
+
+
+class KontekstnoeMenu:
+    def __init__(self, pozitsiya, otryad, sosed=None):
+        self.otryad = otryad
+        self.sosed = sosed
+        self.punkty = ["Объединить"] if sosed is not None else ["Посмотреть состав", "Разделить"]
+        shirina = max(font.size(punkt)[0] for punkt in self.punkty) + 32
+        vysota = 34 * len(self.punkty)
+        x = max(0, min(pozitsiya[0], screen.get_width()-shirina))
+        y = max(0, min(pozitsiya[1], screen.get_height()-vysota))
+        self.knopki = [pygame.Rect(x, y+i*34, shirina, 34) for i in range(len(self.punkty))]
+
+    def aktivna(self, punkt):
+        if punkt == "Объединить":
+            return cena_obiedineniya(self.otryad, self.sosed) is not None
+        if punkt == "Разделить":
+            if not mozhno_upravlyat(self.otryad) or self.otryad.kolichestvo < 2 or self.otryad.ostalos_hodov <= 0:
+                return False
+            return bool(nayti_dostupnye_kletki(self.otryad)[0])
+        return self.otryad.zdorovie > 0 and self.otryad in muravi
+
+    def nazhatie(self, pozitsiya):
+        for punkt, rect in zip(self.punkty, self.knopki):
+            if rect.collidepoint(pozitsiya):
+                return punkt if self.aktivna(punkt) else "neaktivna"
+        return None
+
+    def narisovat(self, poverhnost):
+        for punkt, rect in zip(self.punkty, self.knopki):
+            aktivna = self.aktivna(punkt)
+            cvet = (217, 231, 245) if aktivna and rect.collidepoint(pygame.mouse.get_pos()) else (242, 242, 242)
+            pygame.draw.rect(poverhnost, cvet, rect)
+            nadpis_na_okne(poverhnost, punkt, (rect.left+16, rect.centery),
+                           cvet=(32,32,32) if aktivna else (153,153,153), vyrovnyat="midleft")
+
+
+class OknoSostava:
+    def __init__(self, otryad):
+        self.otryad = otryad
+        self.panel = pygame.Rect(0, 0, 690, 555)
+        self.panel.center = screen.get_rect().center
+        self.knopka = pygame.Rect(0, 0, 290, 48)
+        self.knopka.midbottom = (self.panel.centerx, self.panel.bottom-24)
+        self.krestik = pygame.Rect(self.panel.right-48, self.panel.top+12, 36, 36)
+        self.fon = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+        self.fon.fill((9,17,25,170))
+
+    def narisovat(self, poverhnost):
+        otryad = self.otryad
+        p = self.panel
+        poverhnost.blit(self.fon, (0,0))
+        pygame.draw.rect(poverhnost, (41,56,44), p)
+        nadpis_na_okne(poverhnost, "СОСТАВ ОТРЯДА", (p.left+24,p.top+24), 26)
+        nadpis_na_okne(poverhnost, "×", self.krestik.center, 26, vyrovnyat="center")
+        for i, (podpis, cifra) in enumerate((("Численность", otryad.kolichestvo),
+                                               ("Сила", round(otryad.poluchit_silu())),
+                                               ("Ячейки", otryad.poluchit_yacheyki()))):
+            rect = pygame.Rect(p.left+24+i*218,p.top+77,206,75)
+            pygame.draw.rect(poverhnost,(57,75,55),rect)
+            nadpis_na_okne(poverhnost,podpis,(rect.left+12,rect.top+9),16,(198,211,192))
+            nadpis_na_okne(poverhnost,f"{cifra:,}".replace(","," "),(rect.left+12,rect.top+32),27)
+        for i,(tip,kol) in enumerate(otryad.sostav.items()):
+            rect = pygame.Rect(p.left+24,p.top+165+i*98,p.width-48,88)
+            pygame.draw.rect(poverhnost,(52,70,49),rect)
+            telo, usiki = zagruzchik_atlasov.poluchit_animatsiyu(tip,otryad.komanda,58)
+            kartinka = telo["pokoy"][0].copy()
+            if usiki:
+                kartinka.blit(usiki[0],(0,0))
+            poverhnost.blit(kartinka,kartinka.get_rect(center=(rect.left+42,rect.centery)))
+            dannye = units[tip]
+            nadpis_na_okne(poverhnost,dannye["nazvanie"],(rect.left+86,rect.top+10),21)
+            nadpis_na_okne(poverhnost,f"Здоровье: {dannye['zdorovie']}   Урон: {dannye['uron']}",
+                           (rect.left+86,rect.top+39),16,(198,211,192))
+            nadpis_na_okne(poverhnost,f"Броня: {dannye.get('bronya',0)}%",(rect.left+86,rect.top+61),16,(198,211,192))
+            nadpis_na_okne(poverhnost,kol,(rect.right-18,rect.centery),29,vyrovnyat="midright")
+        nadpis_na_okne(poverhnost,f"Очки передвижения: {otryad.ostalos_hodov} / {otryad.prohodimost}",
+                       (p.left+24,p.top+374))
+        nadpis_na_okne(poverhnost,"Возможность атаки: " + ("Недоступна" if otryad.atakoval_v_etom_hodu else "Доступна"),
+                       (p.left+24,p.top+407))
+        self.narisovat_knopku(poverhnost,"ЗАКРЫТЬ",True)
+
+    def narisovat_knopku(self, poverhnost, tekst, aktivna):
+        cvet = (91,120,75) if aktivna else (70,76,67)
+        if aktivna and self.knopka.collidepoint(pygame.mouse.get_pos()):
+            cvet = (110,145,92)
+        pygame.draw.rect(poverhnost,cvet,self.knopka)
+        nadpis_na_okne(poverhnost,tekst,self.knopka.center,18,(255,255,255) if aktivna else (155,163,150),"center")
+
+
+class OknoRazdeleniya(OknoSostava):
+    def __init__(self, otryad):
+        super().__init__(otryad)
+        self.panel.height = 590
+        self.panel.center = screen.get_rect().center
+        self.krestik.topleft = (self.panel.right-48,self.panel.top+12)
+        self.knopka.midbottom = (self.panel.centerx,self.panel.bottom-24)
+        self.vybrannyy_sostav = {tip: 0 for tip in otryad.sostav}
+        self.polzunki = {tip: pygame.Rect(self.panel.left+28,self.panel.top+128+i*84,self.panel.width-56,22)
+                         for i,tip in enumerate(otryad.sostav)}
+        self.peretaskivaem = None
+
+    def sdvinut(self, tip, x):
+        rect = self.polzunki[tip]
+        dolya = max(0,min(1,(x-rect.left)/rect.width))
+        self.vybrannyy_sostav[tip] = round(dolya*self.otryad.sostav[tip])
+
+    def prichina(self):
+        n = sum(self.vybrannyy_sostav.values())
+        if not mozhno_upravlyat(self.otryad):
+            return "Отряд сейчас недоступен"
+        if self.otryad.ostalos_hodov <= 0:
+            return "Недостаточно очков передвижения"
+        if n <= 0:
+            return "Выберите муравьёв"
+        if n >= self.otryad.kolichestvo:
+            return "В старом отряде должен остаться хотя бы один муравей"
+        if not dostupnye_dlya_razdeleniya(self.otryad,self.vybrannyy_sostav)[0]:
+            return "Нет доступных клеток"
+        return None
+
+    def obrabotat(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.krestik.collidepoint(event.pos):
+                return "zakryt"
+            if self.knopka.collidepoint(event.pos):
+                return "razdelit" if self.prichina() is None else None
+            for tip,rect in self.polzunki.items():
+                if rect.inflate(12,14).collidepoint(event.pos):
+                    self.peretaskivaem = tip
+                    self.sdvinut(tip,event.pos[0])
+                    break
+        elif event.type == pygame.MOUSEMOTION and self.peretaskivaem is not None:
+            self.sdvinut(self.peretaskivaem,event.pos[0])
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            self.peretaskivaem = None
+        return None
+
+    def narisovat(self, poverhnost):
+        p = self.panel
+        o = self.otryad
+        poverhnost.blit(self.fon,(0,0))
+        pygame.draw.rect(poverhnost,(41,56,44),p)
+        nadpis_na_okne(poverhnost,"РАЗДЕЛЕНИЕ ОТРЯДА",(p.left+24,p.top+24),26)
+        nadpis_na_okne(poverhnost,"×",self.krestik.center,26,vyrovnyat="center")
+        nadpis_na_okne(poverhnost,f"{o.kolichestvo} муравьёв  ·  {o.poluchit_yacheyki()} занятых ячеек",(p.left+24,p.top+64),16,(198,211,192))
+        for tip,rect in self.polzunki.items():
+            n = self.vybrannyy_sostav[tip]
+            vsego = o.sostav[tip]
+            nadpis_na_okne(poverhnost,units[tip]["nazvanie"],(rect.left,rect.top-32),18)
+            nadpis_na_okne(poverhnost,f"{n} / {vsego}",(rect.right,rect.top-32),20,vyrovnyat="topright")
+            pygame.draw.rect(poverhnost,(70,86,67),pygame.Rect(rect.left,rect.centery-4,rect.width,8))
+            x = round(rect.left+rect.width*n/vsego)
+            pygame.draw.rect(poverhnost,(122,164,92),pygame.Rect(rect.left,rect.centery-4,x-rect.left,8))
+            pygame.draw.rect(poverhnost,(217,231,207),pygame.Rect(x-7,rect.top,14,rect.height))
+        ostatok = {tip:kol-self.vybrannyy_sostav[tip] for tip,kol in o.sostav.items()}
+        for i,(podpis,sostav) in enumerate((("Остаётся",ostatok),("Отделяется",self.vybrannyy_sostav))):
+            rect = pygame.Rect(p.left+24+i*326,p.top+250,316,180)
+            pygame.draw.rect(poverhnost,(57,75,55),rect)
+            nadpis_na_okne(poverhnost,podpis,(rect.left+14,rect.top+10),18,(198,211,192))
+            nadpis_na_okne(poverhnost,sum(sostav.values()),(rect.left+14,rect.top+35),30)
+            for j,(tip,kol) in enumerate(sostav.items()):
+                nadpis_na_okne(poverhnost,f"{units[tip]['nazvanie']}: {kol}",(rect.left+14,rect.top+77+j*22),16)
+            sila = sila_sostava(sostav)
+            yacheyki = yacheyki_sostava(sostav)
+            nadpis_na_okne(poverhnost,f"Сила: {round(sila):,}".replace(","," "),(rect.left+14,rect.top+128),16)
+            nadpis_na_okne(poverhnost,f"Ячейки: {yacheyki}",(rect.left+14,rect.top+151),16)
+        nadpis_na_okne(poverhnost,f"Остаток очков передвижения: {o.ostalos_hodov}",(p.left+24,p.top+445),18)
+        prichina = self.prichina()
+        nadpis_na_okne(poverhnost,prichina or "После подтверждения выберите зелёную клетку",(p.left+24,p.top+475),16,
+                       (236,169,160) if prichina else (198,211,192))
+        self.narisovat_knopku(poverhnost,"РАЗДЕЛИТЬ",prichina is None)
+
+
 # Инициализация карты
 hex_grid = create_hex_grid(HEX_GRID_WIDTH, HEX_GRID_HEIGHT, HEX_GRID_RADIUS)
 put_karty = os.path.join(data_dir, "karta_provintsiy.json")
@@ -1425,8 +1786,7 @@ muravi = [
     Muravey("rabochiy", hex_grid[(4, 4)], "igrok", 12),
     Muravey("soldat", hex_grid[(6, 4)], "igrok", 12),
     Muravey("soldat", hex_grid[(10, 4)], "vrag", 9),
-    Muravey("bogomol", hex_grid[(12, 4)], "vrag", 1),
-    Muravey("tarantul", hex_grid[(16, 5)], "vrag", 1)
+    Muravey("bogomol", hex_grid[(12, 4)], "vrag", 1)
 ]
 # Если на своей карте кто-то залил точку появления паука водой, ищем ближайшую сухую клетку.
 zanyatye_pri_spavne = {(m.kletka.col, m.kletka.row) for m in muravi}
@@ -1441,11 +1801,15 @@ if kletka_pauka is not None:
 vybrannyy_muravey = None
 tsel_ataki = None
 avtoboy = None
-shrift_kolichestva = pygame.font.SysFont("arial", 13, bold=True)
-shrift_imen_vragov = pygame.font.SysFont("arial", 12, bold=True)
+kontekstnoe_menu = None
+okno_otryada = None
+razdelenie = None
+slivanie = None
+shrift_kolichestva = poluchit_shrift(13)
+shrift_imen_vragov = poluchit_shrift(12)
 
 effekty_smerti = []
-shrift_smerti = pygame.font.SysFont("arial", 12, bold=True)
+shrift_smerti = poluchit_shrift(12)
 tekst_smerti = shrift_smerti.render("Смерть", True, (255, 255, 255))
 
 
@@ -1501,6 +1865,13 @@ while running:
         for muravey in muravi:
             muravey.obnovit(delta_time)
 
+        if slivanie is not None:
+            otryad, sosed = slivanie
+            if not otryad.marshrut:
+                if obiedinit_otryady(otryad, sosed):
+                    vybrannyy_muravey = sosed
+                slivanie = None
+
         for muravey in muravi:
             vrag = muravey.vrag_dlya_boya
             if vrag is None or muravey.marshrut:
@@ -1510,6 +1881,7 @@ while running:
                     and muravey.kolichestvo > 0 and vrag.kolichestvo > 0
                     and muravey.kletka.is_has_neighbor(vrag.kletka)):
                 avtoboy = Avtoboy(muravey, vrag)
+                kontekstnoe_menu = okno_otryada = razdelenie = None
                 break
 
         if vybrannyy_muravey is not None:
@@ -1535,6 +1907,7 @@ while running:
 
 
     boy_zakryvalsya_v_etom_kadre = avtoboy is not None
+    okno_zakryto_v_etom_kadre = False
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -1547,6 +1920,69 @@ while running:
                     avtoboy = None
                     vybrannyy_muravey = None
                     tsel_ataki = None
+            continue
+
+        # На время объединения не даём второму отряду уйти с клетки.
+        if slivanie is not None or okno_zakryto_v_etom_kadre:
+            continue
+
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE, pygame.K_n, pygame.K_F2):
+            bylo_okno = okno_otryada is not None or kontekstnoe_menu is not None or razdelenie is not None
+            kontekstnoe_menu = okno_otryada = razdelenie = None
+            if event.key == pygame.K_ESCAPE and bylo_okno:
+                okno_zakryto_v_etom_kadre = True
+                continue
+
+        # Клики в окнах не должны ещё и двигать отряд на карте.
+        if okno_otryada is not None:
+            if isinstance(okno_otryada, OknoRazdeleniya):
+                deystvie = okno_otryada.obrabotat(event)
+                if deystvie == "razdelit":
+                    razdelenie = (okno_otryada.otryad, dict(okno_otryada.vybrannyy_sostav))
+                    vybrannyy_muravey = okno_otryada.otryad
+                    okno_otryada = None
+                    okno_zakryto_v_etom_kadre = True
+                elif deystvie == "zakryt":
+                    okno_otryada = None
+                    okno_zakryto_v_etom_kadre = True
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if okno_otryada.knopka.collidepoint(event.pos) or okno_otryada.krestik.collidepoint(event.pos):
+                    okno_otryada = None
+                    okno_zakryto_v_etom_kadre = True
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                okno_otryada = None
+                okno_zakryto_v_etom_kadre = True
+            continue
+
+        if kontekstnoe_menu is not None:
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                punkt = kontekstnoe_menu.nazhatie(event.pos) if event.button == 1 else None
+                if punkt == "neaktivna":
+                    continue
+                if punkt == "Объединить":
+                    otryad, sosed = kontekstnoe_menu.otryad, kontekstnoe_menu.sosed
+                    if nachat_obiedinenie(otryad, sosed):
+                        slivanie = (otryad, sosed)
+                        vybrannyy_muravey = None
+                elif punkt == "Посмотреть состав":
+                    okno_otryada = OknoSostava(kontekstnoe_menu.otryad)
+                elif punkt == "Разделить":
+                    okno_otryada = OknoRazdeleniya(kontekstnoe_menu.otryad)
+                kontekstnoe_menu = None
+                okno_zakryto_v_etom_kadre = True
+            continue
+
+        if razdelenie is not None:
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 3:
+                    razdelenie = None
+                    okno_zakryto_v_etom_kadre = True
+                elif event.button == 1 and not hud.is_mouse_over(event.pos):
+                    kletka = hex_under_mouse(hex_grid,event.pos)
+                    if kletka is not None and razdelit_otryad(*razdelenie,kletka) is not None:
+                        vybrannyy_muravey = razdelenie[0]
+                        razdelenie = None
+                        okno_zakryto_v_etom_kadre = True
             continue
 
         if event.type == pygame.KEYDOWN:
@@ -1589,6 +2025,11 @@ while running:
                 hud.selected_tile = None
                 vybrannyy_muravey = None
                 tsel_ataki = None
+                if not redaktor and not hud.is_mouse_over(event.pos):
+                    otryad = nayti_otryad_na_kletke(hex_under_mouse(hex_grid,event.pos))
+                    if otryad is not None and otryad.komanda == "igrok":
+                        kontekstnoe_menu = KontekstnoeMenu(event.pos,otryad)
+                continue
 
             if event.button == 1 and not redaktor:
                 if hud.is_mouse_over(event.pos):
@@ -1623,6 +2064,11 @@ while running:
                 if nazhatyy_muravey is not None:
                     if nazhatyy_muravey.komanda == "igrok":
                         tsel_ataki = None
+                        if (vybrannyy_muravey is not None and vybrannyy_muravey is not nazhatyy_muravey
+                                and mozhno_upravlyat(vybrannyy_muravey) and mozhno_upravlyat(nazhatyy_muravey)
+                                and vybrannyy_muravey.kletka.is_has_neighbor(nazhatyy_muravey.kletka)):
+                            kontekstnoe_menu = KontekstnoeMenu(event.pos,vybrannyy_muravey,nazhatyy_muravey)
+                            continue
                         mozhet_atakovat = (
                             not nazhatyy_muravey.atakoval_v_etom_hodu
                             and any(
@@ -1667,7 +2113,7 @@ while running:
                     if vybrannyy_muravey is not None:
                         vybrannyy_muravey.peremestitsya(kletka)
 
-    if hud.is_mouse_over(mouse_pos) or avtoboy is not None:
+    if hud.is_mouse_over(mouse_pos) or avtoboy is not None or okno_otryada is not None or kontekstnoe_menu is not None:
         hovered_tile = None
     else:
         hovered_tile = hex_under_mouse(hex_grid)
@@ -1682,7 +2128,13 @@ while running:
     screen.blit(scaled_map_img, (0, 0))
 
     setka_sloy.fill((0, 0, 0, 0))
-    if not redaktor and vybrannyy_muravey is not None and avtoboy is None:
+    if razdelenie is not None and avtoboy is None:
+        otryad, sostav = razdelenie
+        dostupnye, _ = dostupnye_dlya_razdeleniya(otryad,sostav)
+        for koord in dostupnye:
+            pygame.draw.polygon(setka_sloy,(40,200,75,85),hex_grid[koord].table_points)
+        pygame.draw.polygon(setka_sloy,(255,215,0,110),otryad.kletka.table_points)
+    elif not redaktor and vybrannyy_muravey is not None and avtoboy is None:
         if vybrannyy_muravey.zdorovie > 0 and not vybrannyy_muravey.marshrut:
             dostupnye = {}
             if vybrannyy_muravey.ostalos_hodov > 0:
@@ -1768,9 +2220,19 @@ while running:
         border_color = (50, 255, 50) if can_build else (255, 60, 60)
         hovered_tile.draw(screen, color=border_color, thick=4)
 
-    unit_count = sum(1 for unit in muravi if unit.komanda == "igrok" and unit.zdorovie > 0)
+    unit_count = sum(unit.poluchit_yacheyki() for unit in muravi if unit.komanda == "igrok" and unit.zdorovie > 0)
     max_units = sum(building.unit_slots for building in buildings)
     hud.draw(screen, unit_count, max_units)
+
+    if razdelenie is not None:
+        rect = pygame.Rect(0,0,650,38)
+        rect.midtop = (screen.get_width()//2,44)
+        pygame.draw.rect(screen,(41,56,44),rect)
+        nadpis_na_okne(screen,"Выберите клетку для отделённого отряда",rect.center,18,vyrovnyat="center")
+    if kontekstnoe_menu is not None:
+        kontekstnoe_menu.narisovat(screen)
+    if okno_otryada is not None:
+        okno_otryada.narisovat(screen)
 
     # Окно битвы.
     if avtoboy is not None:
