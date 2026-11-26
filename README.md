@@ -2,7 +2,7 @@
   <img src="antsbattler-banner.gif" width="100%" alt="ANTSBATTLER — Маленький мир. Большая война.">
   <p>
     <img src="https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python">
-    <img src="https://img.shields.io/badge/Pygame-526B45?style=flat-square" alt="Pygame">
+    <img src="https://img.shields.io/badge/Pygame-ce-526B45?style=flat-square" alt="Pygame">
     <img src="https://img.shields.io/badge/Жанр-Стратегия-806548?style=flat-square" alt="Стратегия">
     <img src="https://img.shields.io/badge/Статус-В_разработке-646E59?style=flat-square" alt="В разработке">
   </p>
@@ -63,7 +63,7 @@
 Для запуска необходимы Python и библиотека Pygame. Откройте терминал в корневой папке проекта:
 
 ```powershell
-python -m pip install pygame
+python -m pip install pygame-ce
 python PyGame_MAIN.py
 ```
 
