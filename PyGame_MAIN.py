@@ -52,9 +52,16 @@ hitbox_stonewall1 = pygame.Rect(x, 30, stonewall1_img.get_width(), stonewall1_im
 path_ant_house = os.path.join(textures_dir, "muraveynik.png")
 ant_house_img = pygame.image.load(path_ant_house).convert_alpha()
 
+path_ferma = os.path.join(textures_dir, "ferma.png")
+ferma_img = pygame.image.load(path_ferma).convert_alpha()
+
+path_stone_farm = os.path.join(textures_dir, "kamenolomna.png")
+stone_farm_img = pygame.image.load(path_stone_farm).convert_alpha()
+
 path_map_img = os.path.join(textures_dir, "MainMap.png")
 map_img = pygame.image.load(path_map_img).convert_alpha()
 scaled_map_img = pygame.transform.scale(map_img, screen.get_size())
+
 
 kadry_muravya = [
     pygame.image.load(
@@ -72,16 +79,23 @@ pygame.draw.rect(screen, (255 * collision, 255, 0), target)
                                          stonewall1_img.get_height() * 2)) НЕОПТИМИЗИРОВАННЫЙ ВАРИАНТ ТОЛЬКО ЧТО-ТО ОЧЕНЬ ВАЖНОЕ"""
 
 
+#ФУНКЦИЯ ДЛЯ ГРАМОТНОГО МАСШТАБИРОВАНИЯ ПОД РАЗМЕР HEXа
+def scale_building_image(image, target_width):
+    target_height = int(image.get_height() * (target_width / image.get_width()))
+    return pygame.transform.scale(image, (int(target_width), target_height))
+
+
+
 """КЛАССЫ:"""
 #HUD
 class HUD:
-    def __init__(self, width_hud, height_hud, building_images, resources, resource_emojis):
+    def __init__(self, resource_manager, width_hud, height_hud, building_images, resource_emojis):
+        self.resource_manager = resource_manager
         self.width_hud = width_hud
         self.height_hud = height_hud
         self.hud_colour = (174, 219, 242, 240) #последнее прозрачность, пока так так как иначе видно hexы
         self.building_images = building_images
         self.selected_tile = None
-        self.resources = resources
         
         self.resource_icons = {
             name: font_smiles.render(emoji, True, (30, 30, 30))
@@ -104,6 +118,7 @@ class HUD:
         self.resources_rect = self.resources_surface.get_rect(topleft=(0, 0))
         self.build_rect = self.build_surface.get_rect(topleft=(width_hud * 0.84, height_hud * 0.74))
         self.select_rect = self.select_surface.get_rect(topleft=(width_hud * 0.01, height_hud * 0.79))
+    
     def create_build_hud(self):
         x_start = self.width_hud * 0.84 + 15
         render_pos = [x_start, self.height_hud * 0.74 + 15]
@@ -138,7 +153,7 @@ class HUD:
                 if mouse_action[0]:
                     self.selected_tile = tile
     
-    def draw(self, screen):
+    def draw(self, screen, unit_count = 0, max_units = 0):
         screen.blit(self.resources_surface, (0, 0))
         screen.blit(self.build_surface, (self.width_hud * 0.84, self.height_hud * 0.74))
         screen.blit(self.select_surface, (self.width_hud * 0.01, self.height_hud * 0.79))
@@ -146,9 +161,18 @@ class HUD:
         for tile in self.tiles:
             screen.blit(tile["icon"], tile["rect"].topleft)
         
+        if self.selected_tile is not None:
+            pygame.draw.rect(screen, (255, 255, 0), self.selected_tile["rect"], 3)
+        
+        #Прочее, текст и так далее:
+        units_text = font.render(f"Ячейки юнитов: {unit_count}/{max_units}", True, (20, 20, 20))
+        units_rect = units_text.get_rect(midleft=(20, self.resources_rect.centery))
+        screen.blit(units_text, units_rect)
+
+        
         #Ресурсы:
-        pos = self.width_hud - 400
-        for resource, amount in self.resources.items():
+        pos = self.width_hud - 420
+        for resource, resource_value in self.resource_manager.resources.items():
             if resource in self.resource_icons:
                 icon = self.resource_icons[resource]
                 icon_rect = icon.get_rect(midleft=(pos, self.resources_rect.centery))
@@ -157,10 +181,11 @@ class HUD:
             else:
                 text_x = pos
             
-            text_surface = font.render(f"{resource}: {amount}", True, (20, 20, 20))
+            text_surface = font.render(f"{resource}: {resource_value}", True, (20, 20, 20))
             text_rect = text_surface.get_rect(midleft=(text_x, self.resources_rect.centery))
             screen.blit(text_surface, text_rect)
             pos += 180
+    
     
     def scale_image(self, image, w=None, h=None):
         if (w == None) and (h == None):
@@ -191,14 +216,86 @@ class ResourceManager:
     def __init__(self):
         #Ресурсы:
         self.resources = {
-            "wood": 10,
-            "stone": 10
+            "wood": 40,
+            "stone": 40
         }
         
         #Стоимость постройки:
         self.costs = {
-            "ant_house": {"wood": 7, "stone": 3}
+            "Stone_Farm": {"wood": 15, "stone": 3},
+            "Wood_Farm": {"wood": 3, "stone": 15},
+            "ant_house": {"wood": 20, "stone": 20}
         }
+    
+    def apply_cost_to_resource(self, building):
+        for resource, cost in self.costs[building].items():
+            self.resources[resource] -= cost
+        
+    def is_affordable(self, building):
+        b_affordable = True
+        for resource, cost in self.costs[building].items():
+            if cost > self.resources[resource]:
+                b_affordable = False
+        return b_affordable
+
+
+#СТРОЕНИЯ:
+#Муравейник:
+class Ant_House:
+    def __init__(self, tile, resource_manager):
+        self.tile = tile
+        self.image = scale_building_image(ant_house_img, tile.radius * 1.8)
+        self.name = "ant_house"
+        self.rect = self.image.get_rect(center = tile.center)
+        self.resource_manager = resource_manager
+        self.resource_manager.apply_cost_to_resource(self.name)
+        self.unit_slots = 5
+        self.production = {"wood": 7, "stone": 7}
+    
+    def produce_per_turn(self):
+        for resource, amount in self.production.items():
+            self.resource_manager.resources[resource] += amount
+    
+    def draw(self, surface):
+        surface.blit(self.image, self.rect)
+
+#Ферма:
+class WoodFarm:
+    def __init__(self, tile, resource_manager):
+            self.tile = tile
+            self.image = scale_building_image(ferma_img, tile.radius * 1.8)
+            self.name = "Wood_Farm"
+            self.rect = self.image.get_rect(center = tile.center)
+            self.resource_manager = resource_manager
+            self.resource_manager.apply_cost_to_resource(self.name)
+            self.unit_slots = 0
+            self.production = {"wood": 5}
+    
+    def produce_per_turn(self):
+        for resource, amount in self.production.items():
+            self.resource_manager.resources[resource] += amount
+    
+    def draw(self, surface):
+        surface.blit(self.image, self.rect)
+
+#Каменоломня:
+class StoneFarm:
+    def __init__(self, tile, resource_manager):
+            self.tile = tile
+            self.image = scale_building_image(stone_farm_img, tile.radius * 1.8)
+            self.name = "Stone_Farm"
+            self.rect = self.image.get_rect(center = tile.center)
+            self.resource_manager = resource_manager
+            self.resource_manager.apply_cost_to_resource(self.name)
+            self.unit_slots = 0
+            self.production = {"stone": 5}
+    
+    def produce_per_turn(self):
+        for resource, amount in self.production.items():
+            self.resource_manager.resources[resource] += amount
+    
+    def draw(self, surface):
+        surface.blit(self.image, self.rect)
 
 #Кнопка:
 class TestButton:
@@ -367,6 +464,7 @@ def nanesti_uron(atakuyushiy, zashchitnik):
 #HEX TOOL (MAIN HEX):
 class Hex: #$\sqrt{\Delta x^2 + \Delta y^2}$)
     def __init__(self, row, col, hex_x, hex_y, hex_radius):
+        self.building = None
         self.col = col
         self.row = row
         self.center = pygame.math.Vector2(hex_x, hex_y)
@@ -541,20 +639,29 @@ muravi = [
 vybrannyy_muravey = None
 
 
-resources = {
-    "wood": 50,
-    "stone": 30
-}
+
 resource_emojis = {
     "wood": "🌲",
     "stone": "🪨",
 }
 
+resource_manager = ResourceManager()
+
 building_textures = {
-    "Муравейник": ant_house_img
+    "Stone_Farm": stone_farm_img,
+    "Wood_Farm": ferma_img,
+    "ant_house": ant_house_img,
 }
 
-hud = HUD(1600, 900, building_textures, resources, resource_emojis)
+BUILDING_CLASSES = {
+    "Stone_Farm": StoneFarm,
+    "Wood_Farm": WoodFarm,
+    "ant_house": Ant_House,
+}
+
+buildings = []
+
+hud = HUD(resource_manager, 1600, 900, building_textures, resource_emojis)
 
 redaktor = False
 tip_kisti = "les"
@@ -658,6 +765,9 @@ while running:
 
     screen.blit(setka_sloy, (0, 0))
 
+    for building in buildings:
+        building.draw(screen)
+
     for muravey in muravi:
         muravey.narisovat(screen, kadry_muravya)
 
@@ -722,6 +832,9 @@ while running:
                     if muravey.zdorovie > 0:
                         muravey.ostalos_hodov = muravey.prohodimost
 
+                for building in buildings:
+                    building.produce_per_turn()
+
                 print("Новый ход!")
 
         if event.type == pygame.MOUSEBUTTONDOWN:
@@ -729,43 +842,66 @@ while running:
                 vybrannyy_muravey = None
 
             if event.button == 1 and not hud.is_mouse_over(mouse_pos) and not redaktor:
-                kletka = hex_under_mouse(hex_grid)
+                clicked_tile = hex_under_mouse(hex_grid)
 
-                if kletka is not None:
-                    nazhatyy_muravey = None
+                if clicked_tile is not None:
+                    if hud.selected_tile is not None:
+                        building_type = hud.selected_tile["name"]
+                        coords = (clicked_tile.col, clicked_tile.row)
+                        province_type = provintsii_kletok[coords]
+                        is_passable = tipy_provintsiy[province_type].get("prohodima", True)
 
-                    for muravey in muravi:
-                        if muravey.kletka is kletka and muravey.zdorovie > 0:
-                            nazhatyy_muravey = muravey
-                            break
-
-                    if nazhatyy_muravey is not None:
-                        if nazhatyy_muravey.ostalos_hodov > 0:
-                            vybrannyy_muravey = nazhatyy_muravey
+                        if clicked_tile.building is None and is_passable:
+                            if resource_manager.is_affordable(building_type):
+                                new_building = BUILDING_CLASSES[building_type](clicked_tile, resource_manager)
+                                clicked_tile.building = new_building
+                                buildings.append(new_building)
+                                hud.selected_tile = None
+                            else:
+                                print("Недостаточно ресурсов для постройки!")
                         else:
-                            vybrannyy_muravey = None
+                            print("На этой клетке нельзя строить!")
+                    else:
+                        clicked_ant = None
 
-                    elif vybrannyy_muravey is not None:
-                        vybrannyy_muravey.peremestitsya(kletka)
+                        for muravey in muravi:
+                            if muravey.kletka is clicked_tile and muravey.zdorovie > 0:
+                                clicked_ant = muravey
+                                break
 
-    if hud.selected_tile is not None and hovered_tile is not None:
-        preview_img = hud.selected_tile["icon"].copy()
-        preview_img.set_alpha(160)  # делаем чуть полупрозрачным
+                        if clicked_ant is not None:
+                            if clicked_ant.ostalos_hodov > 0:
+                                vybrannyy_muravey = clicked_ant
+                            else:
+                                vybrannyy_muravey = None
+
+                        elif vybrannyy_muravey is not None:
+                            vybrannyy_muravey.peremestitsya(clicked_tile)
+
+    if hud.selected_tile is not None and hovered_tile is not None and not redaktor:
+        building_type = hud.selected_tile["name"]
+        preview_img = scale_building_image(
+            building_textures[building_type],
+            hovered_tile.radius * 1.8
+        )
+        preview_img.set_alpha(160)
         preview_rect = preview_img.get_rect(center=hovered_tile.center)
         screen.blit(preview_img, preview_rect)
 
-    hud.draw(screen)
+        coords = (hovered_tile.col, hovered_tile.row)
+        is_passable = tipy_provintsiy[provintsii_kletok[coords]].get("prohodima", True)
+        can_build = (
+            hovered_tile.building is None
+            and is_passable
+            and resource_manager.is_affordable(building_type)
+        )
+        border_color = (50, 255, 50) if can_build else (255, 60, 60)
+        hovered_tile.draw(screen, color=border_color, thick=4)
 
-    """#МЫШКА:
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            print("КЛИК")
-        if event.type == pygame.MOUSEBUTTONUP:
-            print("КЛИК КОНЧИЛСЯ")"""
-    
-    
-    
-    
+    unit_count = sum(1 for m in muravi if m.zdorovie > 0)
+    max_units = sum(b.unit_slots for b in buildings)
+    hud.draw(screen, unit_count, max_units)
+
     pygame.display.update() #чтобы показывалось изображение
-    
 
 pygame.quit()
